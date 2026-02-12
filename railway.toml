@@ -1,0 +1,2 @@
+[deploy]
+startCommand = "python server.py"
