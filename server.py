@@ -26,9 +26,6 @@ PORT = int(os.environ.get("PORT", 5001))
 
 app = Flask(__name__, static_folder="static")
 CORS(app)
-@app.route("/api/ping")
-def ping():
-    return jsonify({"status": "ok"})
 
 client = CompaniesHouseClient(API_KEY)
 
