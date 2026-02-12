@@ -29,13 +29,6 @@ CORS(app)
 @app.route("/api/ping")
 def ping():
     return jsonify({"status": "ok"})
-```
-
-Save, close Notepad, then:
-```
-git add .
-git commit -m "Add ping test"
-git push
 
 client = CompaniesHouseClient(API_KEY)
 
