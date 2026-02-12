@@ -1,26 +1,38 @@
 """Companies House REST API client."""
 import requests
 import time
+import base64
 from functools import lru_cache
 
 BASE = "https://api.companieshouse.gov.uk"
-DOC_BASE = "https://frontend-doc-api.company-information.service.gov.uk"
+DOC_API = "https://document-api.companieshouse.gov.uk"
+FRONTEND_DOC_API = "https://frontend-doc-api.company-information.service.gov.uk"
+CONVERT_IXBRL_API = "https://convert-ixbrl.co.uk"
 
 
 class CompaniesHouseClient:
     def __init__(self, api_key):
+        self.api_key = api_key
         self.session = requests.Session()
         self.session.auth = (api_key, "")
         self.session.headers.update({"Accept": "application/json"})
         self._last_call = 0
 
-    def _get(self, url, **kwargs):
-        # Simple rate limiting: 100ms between calls (well within 600/5min)
+        # Separate session for document API (needs different auth handling)
+        self._doc_session = requests.Session()
+        encoded_key = base64.b64encode(f"{api_key}:".encode()).decode()
+        self._doc_session.headers.update({
+            "Authorization": f"Basic {encoded_key}",
+        })
+
+    def _rate_limit(self):
         elapsed = time.time() - self._last_call
         if elapsed < 0.1:
             time.sleep(0.1 - elapsed)
         self._last_call = time.time()
 
+    def _get(self, url, **kwargs):
+        self._rate_limit()
         resp = self.session.get(url, **kwargs)
         if resp.status_code == 404:
             return None
@@ -80,42 +92,133 @@ class CompaniesHouseClient:
         return filings
 
     def get_document_content(self, document_metadata_url):
-        """Download the actual document content (iXBRL/XHTML).
+        """Download iXBRL/XHTML document content.
 
-        document_metadata_url is typically like /document/abc-123
-        Returns (content_bytes, content_type) or (None, None)
+        Flow:
+        1. GET metadata from frontend-doc-api → get available formats + content URL
+        2. GET content URL with Accept header → 302 redirect to S3
+        3. Follow redirect → download actual file
         """
-        # First get the document metadata to find the content URL
+        # Build the metadata URL
         meta_url = document_metadata_url
         if meta_url.startswith("/"):
-            meta_url = f"{BASE}{meta_url}"
+            meta_url = f"{FRONTEND_DOC_API}{meta_url}"
+        elif not meta_url.startswith("http"):
+            meta_url = f"{FRONTEND_DOC_API}/document/{meta_url}"
 
-        meta = self._get(meta_url)
-        if not meta:
+        print(f"    [doc] Fetching metadata: {meta_url[:80]}...")
+        self._rate_limit()
+
+        try:
+            resp = self._doc_session.get(meta_url, headers={"Accept": "application/json"})
+            if resp.status_code != 200:
+                print(f"    [doc] Metadata failed: HTTP {resp.status_code}")
+                return None, None
+            meta = resp.json()
+        except Exception as e:
+            print(f"    [doc] Metadata error: {e}")
             return None, None
 
-        # The metadata contains links to the actual content
         resources = meta.get("resources", {})
+        print(f"    [doc] Available formats: {list(resources.keys())}")
 
-        # Prefer iXBRL (application/xhtml+xml) over PDF
-        for content_type in ["application/xhtml+xml", "application/xml", "text/html"]:
-            if content_type in resources:
-                content_url = meta.get("links", {}).get("document", "")
-                if content_url:
-                    if content_url.startswith("/"):
-                        content_url = f"{DOC_BASE}{content_url}"
-                    # Fetch with the right Accept header
-                    elapsed = time.time() - self._last_call
-                    if elapsed < 0.1:
-                        time.sleep(0.1 - elapsed)
-                    self._last_call = time.time()
+        # Check if iXBRL is available
+        has_ixbrl = "application/xhtml+xml" in resources
+        if not has_ixbrl:
+            print(f"    [doc] No iXBRL format available (PDF only?)")
+            return None, None
 
-                    resp = self.session.get(content_url, headers={
-                        "Accept": content_type
-                    }, allow_redirects=True)
-                    if resp.status_code == 200:
-                        return resp.content, content_type
-        return None, None
+        # Get the content URL
+        content_url = meta.get("links", {}).get("document", "")
+        if not content_url:
+            print(f"    [doc] No document link in metadata")
+            return None, None
+
+        # Ensure it's a full URL with /content appended
+        if content_url.startswith("/"):
+            content_url = f"{DOC_API}{content_url}"
+        if not content_url.endswith("/content"):
+            content_url = content_url.rstrip("/") + "/content"
+
+        print(f"    [doc] Downloading: {content_url[:80]}...")
+        self._rate_limit()
+
+        try:
+            # Request with Accept header, follow redirects to S3
+            resp = self._doc_session.get(content_url, headers={
+                "Accept": "application/xhtml+xml"
+            }, allow_redirects=True, timeout=30)
+
+            if resp.status_code == 200:
+                ct = resp.headers.get("Content-Type", "")
+                print(f"    [doc] Downloaded {len(resp.content)} bytes ({ct})")
+                return resp.content, "application/xhtml+xml"
+            else:
+                print(f"    [doc] Download failed: HTTP {resp.status_code}")
+                return None, None
+        except Exception as e:
+            print(f"    [doc] Download error: {e}")
+            return None, None
+
+    def get_financials_from_convert_ixbrl(self, number):
+        """Fallback: fetch pre-parsed financials from convert-ixbrl.co.uk.
+
+        This free API has already parsed all Companies House iXBRL filings.
+        Returns parsed financial data or None.
+        """
+        url = f"{CONVERT_IXBRL_API}/api/company/{number}"
+        print(f"  [convert-ixbrl] Trying fallback: {url}")
+
+        try:
+            resp = requests.get(url, timeout=15, headers={
+                "Accept": "application/json"
+            })
+            if resp.status_code != 200:
+                print(f"  [convert-ixbrl] HTTP {resp.status_code}")
+                return None
+
+            data = resp.json()
+            accounts = data.get("accounts", [])
+            if not accounts:
+                print(f"  [convert-ixbrl] No accounts data")
+                return None
+
+            print(f"  [convert-ixbrl] Got {len(accounts)} period(s)")
+
+            results = []
+            for acc in accounts[:4]:
+                bs = acc.get("balanceSheet", {})
+                pl = acc.get("profitAndLoss", {})
+                period = acc.get("period", {})
+
+                record = {
+                    "year": str(period.get("endDate", ""))[:4],
+                    "period_end": period.get("endDate"),
+                    "turnover": pl.get("turnover") or pl.get("revenue"),
+                    "cost_of_sales": pl.get("costOfSales"),
+                    "gross_profit": pl.get("grossProfitLoss") or pl.get("grossProfit"),
+                    "ebit": pl.get("operatingProfitLoss") or pl.get("operatingProfit"),
+                    "net_profit": pl.get("profitLossForPeriod") or pl.get("profitLossForYear"),
+                    "total_assets": bs.get("totalAssets"),
+                    "current_assets": bs.get("currentAssets"),
+                    "total_liabilities": bs.get("totalLiabilities"),
+                    "current_liabilities": bs.get("creditorsDueWithinOneYear") or bs.get("currentLiabilities"),
+                    "net_assets": bs.get("netAssetsLiabilities") or bs.get("netAssets"),
+                    "retained_earnings": bs.get("retainedEarningsAccumulatedLosses") or bs.get("profitLossAccountReserve"),
+                    "cash": bs.get("cashBankInHand") or bs.get("cashCashEquivalents"),
+                    "creditors_due_within_year": bs.get("creditorsDueWithinOneYear") or bs.get("currentLiabilities"),
+                    "employees": acc.get("employees") or acc.get("averageNumberEmployees"),
+                }
+
+                # Only include if we have at least some data
+                if any(v is not None for k, v in record.items() if k not in ("year", "period_end")):
+                    results.append(record)
+
+            return results if results else None
+
+        except Exception as e:
+            print(f"  [convert-ixbrl] Error: {e}")
+            return None
 
 
 def build_company_data(client, number):
