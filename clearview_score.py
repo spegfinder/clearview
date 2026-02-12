@@ -138,16 +138,12 @@ def calc_financial_ratios(fin):
     return ratios
 
 
-def score_financial_health(fin):
-    """Score a single year's financials on 0-100 scale.
-
-    Returns: (score, details_dict)
-    """
+def _score_single_year(fin):
+    """Score a single year's financials. Returns (score, ratios_dict) or (None, {})."""
     ratios = calc_financial_ratios(fin)
-
-    scored = {}
     total_weight = 0
     weighted_sum = 0
+    scored = {}
 
     for name, value in ratios.items():
         s = _score_band(value, RATIO_BANDS[name])
@@ -161,12 +157,52 @@ def score_financial_health(fin):
             total_weight += RATIO_WEIGHTS[name]
 
     if total_weight == 0:
-        return 50, scored  # No data — neutral
+        return None, scored
+    return round(weighted_sum / total_weight, 1), scored
 
-    # Normalise weights to sum to 1
-    financial_health = weighted_sum / total_weight
 
-    return round(financial_health, 1), scored
+def score_financial_health(financials):
+    """Score financial health using ALL available years, weighting recent years more.
+
+    financials: list of financial records sorted newest first (up to 4 years)
+    Returns: (score, details_dict)
+
+    Weighting: Year 0 (latest) = 50%, Year 1 = 25%, Year 2 = 15%, Year 3 = 10%
+    This means a company with 3 years of strong ratios scores higher than one
+    with just 1 strong year, and sustained decline is penalised more heavily.
+    """
+    if not financials:
+        return 50, {}
+
+    # Weight recent years more heavily
+    year_weights = [0.50, 0.25, 0.15, 0.10]
+
+    year_scores = []
+    latest_details = {}
+
+    for i, fin in enumerate(financials[:4]):
+        score, details = _score_single_year(fin)
+        if i == 0:
+            latest_details = details  # Show most recent year's breakdown to user
+        if score is not None:
+            w = year_weights[i] if i < len(year_weights) else 0.05
+            year_scores.append((score, w))
+
+    if not year_scores:
+        return 50, latest_details
+
+    # Normalise weights and compute weighted average
+    total_w = sum(w for _, w in year_scores)
+    blended = sum(s * w for s, w in year_scores) / total_w
+
+    # Add year count info to details
+    latest_details["_years_used"] = len(year_scores)
+    latest_details["_year_scores"] = [
+        {"year": financials[i].get("year", "?"), "score": round(s, 1)}
+        for i, (s, _) in enumerate(year_scores)
+    ]
+
+    return round(blended, 1), latest_details
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -310,7 +346,10 @@ def _pct_change(new, old):
 
 
 def score_trends(financials):
-    """Score year-on-year trends on 0-100 scale.
+    """Score trends using ALL available years on 0-100 scale.
+
+    Analyses year-on-year changes across the full history.
+    Sustained trends (3+ years in same direction) get amplified.
 
     financials: list of financial records sorted newest first
     Returns: (score, trends_list)
@@ -321,72 +360,150 @@ def score_trends(financials):
     if len(financials) < 2:
         return 50, [("Insufficient data for trend analysis", 0, "neutral")]
 
-    curr = financials[0]
-    prev = financials[1]
+    n_years = len(financials)
+    trends.append((f"Analysed {n_years} years of accounts", 0, "info"))
 
-    # 3.1 Retained Earnings Change (profit proxy)
-    re_change = _pct_change(curr.get("retained_earnings"), prev.get("retained_earnings"))
-    if re_change is not None:
-        if re_change > 0.05:
-            adjustment += 20
-            trends.append(("Retained earnings growing (profit proxy)", +20, "positive"))
-        elif re_change >= -0.05:
+    # ── 3.1 Retained Earnings trajectory (profit proxy) ──
+    re_values = [(f.get("year", "?"), f.get("retained_earnings")) for f in financials]
+    re_valid = [(y, v) for y, v in re_values if v is not None]
+
+    if len(re_valid) >= 2:
+        # Calculate year-on-year changes (newest to oldest)
+        re_changes = []
+        for i in range(len(re_valid) - 1):
+            new_v = re_valid[i][1]
+            old_v = re_valid[i + 1][1]
+            ch = _pct_change(new_v, old_v)
+            if ch is not None:
+                re_changes.append(ch)
+
+        if re_changes:
+            # Average annual change
+            avg_re = sum(re_changes) / len(re_changes)
+            # Count direction consistency
+            up_years = sum(1 for c in re_changes if c > 0.02)
+            down_years = sum(1 for c in re_changes if c < -0.02)
+
+            if avg_re > 0.05 and down_years == 0:
+                adjustment += 25
+                label = f"Retained earnings growing consistently ({len(re_changes)} years)"
+                trends.append((label, +25, "positive"))
+            elif avg_re > 0.05:
+                adjustment += 15
+                trends.append(("Retained earnings growing overall", +15, "positive"))
+            elif avg_re >= -0.05:
+                adjustment += 8
+                trends.append(("Retained earnings broadly stable", +8, "neutral"))
+            elif avg_re >= -0.20 or down_years < len(re_changes):
+                adjustment -= 12
+                trends.append(("Retained earnings declining", -12, "risk"))
+            else:
+                adjustment -= 25
+                label = f"Sustained decline in retained earnings ({down_years} consecutive years)"
+                trends.append((label, -25, "high_risk"))
+
+        # Estimated profit from most recent pair
+        curr_re = financials[0].get("retained_earnings")
+        prev_re = financials[1].get("retained_earnings")
+        if curr_re is not None and prev_re is not None:
+            est_profit = curr_re - prev_re
+            trends.append((f"Estimated annual profit/loss: \u00a3{est_profit:,.0f}", 0, "info"))
+
+        # Multi-year profit trajectory if 3+ years
+        if len(re_valid) >= 3:
+            profits = []
+            for i in range(len(re_valid) - 1):
+                p = re_valid[i][1] - re_valid[i + 1][1]
+                profits.append((re_valid[i][0], p))
+            loss_years = sum(1 for _, p in profits if p < 0)
+            if loss_years == 0 and len(profits) >= 2:
+                trends.append((f"Profitable in all {len(profits)} years analysed", 0, "info"))
+            elif loss_years == len(profits):
+                adjustment -= 10
+                trends.append((f"Loss-making in all {len(profits)} years analysed", -10, "high_risk"))
+            elif loss_years > 0:
+                trends.append((f"Loss-making in {loss_years} of {len(profits)} years", 0, "info"))
+
+    # ── 3.2 Net Assets trajectory ──
+    na_values = [(f.get("year", "?"), f.get("net_assets")) for f in financials]
+    na_valid = [(y, v) for y, v in na_values if v is not None]
+
+    if len(na_valid) >= 2:
+        na_changes = []
+        for i in range(len(na_valid) - 1):
+            ch = _pct_change(na_valid[i][1], na_valid[i + 1][1])
+            if ch is not None:
+                na_changes.append(ch)
+
+        if na_changes:
+            avg_na = sum(na_changes) / len(na_changes)
+            down_na = sum(1 for c in na_changes if c < -0.05)
+
+            if avg_na > 0.05 and down_na == 0:
+                adjustment += 15
+                trends.append(("Net assets growing consistently", +15, "positive"))
+            elif avg_na > 0.02:
+                adjustment += 10
+                trends.append(("Net assets growing", +10, "positive"))
+            elif avg_na >= -0.05:
+                adjustment += 5
+                trends.append(("Net assets stable", +5, "neutral"))
+            elif down_na == len(na_changes):
+                adjustment -= 18
+                trends.append((f"Net assets declining every year ({len(na_changes)} years)", -18, "high_risk"))
+            else:
+                adjustment -= 12
+                trends.append(("Net assets declining", -12, "risk"))
+
+    # ── 3.3 Liquidity trend (current ratio) ──
+    cr_values = []
+    for fin in financials:
+        cr = _safe_div(fin.get("current_assets"),
+                       fin.get("current_liabilities") or fin.get("creditors_due_within_year"))
+        cr_values.append(cr)
+
+    cr_valid = [v for v in cr_values if v is not None]
+    if len(cr_valid) >= 2:
+        # Compare newest vs oldest for overall direction
+        overall_delta = cr_valid[0] - cr_valid[-1]
+        # Also check most recent change
+        recent_delta = cr_valid[0] - cr_valid[1]
+
+        if overall_delta > 0.2 and recent_delta > 0:
             adjustment += 10
-            trends.append(("Retained earnings stable", +10, "neutral"))
-        elif re_change >= -0.20:
-            adjustment -= 10
-            trends.append(("Retained earnings declining", -10, "risk"))
-        else:
-            adjustment -= 20
-            trends.append(("Significant retained earnings decline", -20, "high_risk"))
-
-        # Calculate the estimated profit figure for display
-        if curr.get("retained_earnings") is not None and prev.get("retained_earnings") is not None:
-            est_profit = curr["retained_earnings"] - prev["retained_earnings"]
-            trends.append((f"Estimated annual profit/loss: £{est_profit:,.0f}", 0, "info"))
-
-    # 3.2 Net Assets Trend
-    na_change = _pct_change(curr.get("net_assets"), prev.get("net_assets"))
-    if na_change is not None:
-        if na_change > 0.05:
-            adjustment += 15
-            trends.append(("Net assets growing", +15, "positive"))
-        elif na_change >= -0.05:
+            trends.append(("Liquidity improving over time", +10, "positive"))
+        elif overall_delta > 0:
             adjustment += 5
-            trends.append(("Net assets stable", +5, "neutral"))
-        else:
-            adjustment -= 15
-            trends.append(("Net assets declining", -15, "risk"))
-
-    # 3.3 Current Ratio Trend
-    cr_curr = _safe_div(curr.get("current_assets"),
-                        curr.get("current_liabilities") or curr.get("creditors_due_within_year"))
-    cr_prev = _safe_div(prev.get("current_assets"),
-                        prev.get("current_liabilities") or prev.get("creditors_due_within_year"))
-    if cr_curr is not None and cr_prev is not None:
-        cr_delta = cr_curr - cr_prev
-        if cr_delta > 0.1:
-            adjustment += 10
-            trends.append(("Current ratio improving", +10, "positive"))
-        elif cr_delta >= -0.1:
-            adjustment += 5
-            trends.append(("Current ratio stable", +5, "neutral"))
+            trends.append(("Liquidity slightly improved", +5, "positive"))
+        elif overall_delta > -0.15:
+            adjustment += 3
+            trends.append(("Liquidity broadly stable", +3, "neutral"))
         else:
             adjustment -= 10
-            trends.append(("Current ratio deteriorating", -10, "risk"))
+            trends.append(("Liquidity deteriorating over time", -10, "risk"))
 
-    # 3.4 Cash Trend
-    cash_change = _pct_change(curr.get("cash"), prev.get("cash"))
-    if cash_change is not None:
-        if cash_change > 0.1:
-            adjustment += 10
-            trends.append(("Cash position improving", +10, "positive"))
-        elif cash_change >= -0.1:
-            adjustment += 5
-            trends.append(("Cash position stable", +5, "neutral"))
-        else:
-            adjustment -= 10
-            trends.append(("Cash position declining", -10, "risk"))
+    # ── 3.4 Cash trend ──
+    cash_values = [(f.get("year", "?"), f.get("cash")) for f in financials]
+    cash_valid = [(y, v) for y, v in cash_values if v is not None]
+
+    if len(cash_valid) >= 2:
+        cash_changes = []
+        for i in range(len(cash_valid) - 1):
+            ch = _pct_change(cash_valid[i][1], cash_valid[i + 1][1])
+            if ch is not None:
+                cash_changes.append(ch)
+
+        if cash_changes:
+            avg_cash = sum(cash_changes) / len(cash_changes)
+            if avg_cash > 0.1:
+                adjustment += 8
+                trends.append(("Cash position improving", +8, "positive"))
+            elif avg_cash >= -0.1:
+                adjustment += 4
+                trends.append(("Cash position stable", +4, "neutral"))
+            else:
+                adjustment -= 8
+                trends.append(("Cash position declining", -8, "risk"))
 
     score = max(0, min(100, 50 + adjustment))
     return score, trends
@@ -476,7 +593,7 @@ def calc_altman_z(fin):
 # ═══════════════════════════════════════════════════════════════════
 
 def calc_confidence(financials, company_data):
-    """Determine confidence level based on data completeness.
+    """Determine confidence level based on data completeness across all years.
 
     Returns: ("high" | "medium" | "low", reason_string)
     """
@@ -485,22 +602,35 @@ def calc_confidence(financials, company_data):
     if n_years == 0:
         return "low", "No financial data available"
 
-    # Count how many key fields are present in most recent year
-    latest = financials[0]
+    # Count how many key fields are present across years
     key_fields = ["total_assets", "current_assets", "current_liabilities",
                   "net_assets", "retained_earnings", "cash"]
+
+    # Check most recent year
+    latest = financials[0]
     available = sum(1 for f in key_fields if latest.get(f) is not None)
     completeness = available / len(key_fields)
+
+    # Check consistency across years (do all years have the same fields?)
+    multi_year_quality = 0
+    if n_years >= 2:
+        for yr in financials[1:]:
+            yr_avail = sum(1 for f in key_fields if yr.get(f) is not None)
+            multi_year_quality += yr_avail / len(key_fields)
+        multi_year_quality /= (n_years - 1)
 
     has_officers = len(company_data.get("officers", [])) > 0
     has_age = company_data.get("date_of_creation") is not None
 
-    if n_years >= 3 and completeness >= 0.8 and has_officers and has_age:
-        return "high", f"{n_years} years data, {available}/{len(key_fields)} balance sheet fields"
+    if n_years >= 3 and completeness >= 0.8 and multi_year_quality >= 0.6 and has_officers and has_age:
+        return "high", f"{n_years} years data, {available}/{len(key_fields)} fields, consistent history"
     elif n_years >= 2 and completeness >= 0.5:
-        return "medium", f"{n_years} years data, {available}/{len(key_fields)} balance sheet fields"
+        return "medium", f"{n_years} years data, {available}/{len(key_fields)} fields"
     else:
-        return "low", f"{n_years} year(s) data, {available}/{len(key_fields)} balance sheet fields"
+        reason = f"{n_years} year(s) data, {available}/{len(key_fields)} fields"
+        if n_years < 2:
+            reason += " (no trend data)"
+        return "low", reason
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -539,9 +669,9 @@ def assess_company(company_data, financials):
 
     Returns: dict with full assessment results
     """
-    # ── Pillar 1: Financial Health ──
+    # ── Pillar 1: Financial Health (multi-year weighted) ──
     if financials:
-        fh_score, fh_details = score_financial_health(financials[0])
+        fh_score, fh_details = score_financial_health(financials)
     else:
         fh_score, fh_details = 50, {}
 
