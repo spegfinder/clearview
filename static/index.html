@@ -21,9 +21,9 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback } = React;
+const { useState, useEffect, useRef } = React;
 
-/* ═══════════════════════════════ SIC BENCHMARKS ═══════════════════════════════ */
+/* ═══════════════════════════ SIC BENCHMARKS ═══════════════════════════ */
 const SIC_BENCHMARKS = {
   "01110": { sector: "Cereal Growing", rev_per_employee: 180000, gross_margin: 0.35, net_margin: 0.08, ebit_margin: 0.10, asset_turnover: 0.4, current_ratio: 1.4, sample_size: 210 },
   "10710": { sector: "Bakery & Fresh Food Mfg", rev_per_employee: 72000, gross_margin: 0.62, net_margin: 0.082, ebit_margin: 0.11, asset_turnover: 1.78, current_ratio: 1.05, sample_size: 342 },
@@ -54,267 +54,289 @@ const SIC_BENCHMARKS = {
 };
 function getBench(sic) { return SIC_BENCHMARKS[sic] || SIC_BENCHMARKS["_default"]; }
 
-/* ═══════════════════════════════ ESTIMATION ENGINE ═══════════════════════════════ */
+/* ═══════════════════════════ ESTIMATION (kept for data display) ═══════════════════════════ */
 function estimateFinancials(f, sic, prevF) {
   const bench = getBench(sic);
   const hasAll = f.turnover != null && f.ebit != null;
   if (hasAll) return { ...f, estimated: false, method: "full", benchmark: bench, dataFields: getDF(f), confidence: 1.0 };
-
   const est = { ...f, estimated: true, benchmark: bench, estimates: {}, gaps: [] };
   const hasT = f.turnover != null, hasNP = f.net_profit != null, hasE = f.ebit != null;
   const hasGP = f.gross_profit != null, hasEmp = f.employees && f.employees > 0, hasRE = f.retained_earnings != null;
-
-  // Turnover
-  if (hasT) { est.est_turnover = f.turnover; est.est_turnover_low = f.turnover; est.est_turnover_high = f.turnover; est.estimates.revenue = { method: "Filed", confidence: "high", source: "filed" }; }
-  else if (hasEmp) { est.est_turnover = f.employees * bench.rev_per_employee; est.est_turnover_low = f.employees * bench.rev_per_employee * 0.7; est.est_turnover_high = f.employees * bench.rev_per_employee * 1.35; est.estimates.revenue = { method: `£${(bench.rev_per_employee/1000).toFixed(0)}k/employee × ${f.employees}`, confidence: "medium", source: "estimated" }; est.gaps.push("turnover"); }
-  else if (f.total_assets) { est.est_turnover = f.total_assets * bench.asset_turnover; est.est_turnover_low = f.total_assets * bench.asset_turnover * 0.5; est.est_turnover_high = f.total_assets * bench.asset_turnover * 1.5; est.estimates.revenue = { method: `${bench.asset_turnover}x asset turnover`, confidence: "low", source: "estimated" }; est.gaps.push("turnover"); }
-
-  // Gross profit
-  if (hasGP) { est.est_gross_profit = f.gross_profit; est.estimates.gross_profit = { source: "filed" }; }
-  else { est.est_gross_profit = (est.est_turnover || 0) * bench.gross_margin; est.estimates.gross_profit = { method: `${(bench.gross_margin*100).toFixed(0)}% margin`, source: "estimated" }; est.gaps.push("gross_profit"); }
-
-  // EBIT
-  if (hasE) { est.est_ebit = f.ebit; est.estimates.ebit = { source: "filed" }; }
-  else if (hasNP && hasT) { est.est_ebit = f.net_profit * 1.25; est.estimates.ebit = { method: "Net profit × 1.25", source: "derived" }; est.gaps.push("ebit"); }
-  else { est.est_ebit = (est.est_turnover || 0) * bench.ebit_margin; est.estimates.ebit = { method: `${(bench.ebit_margin*100).toFixed(0)}% EBIT margin`, source: "estimated" }; est.gaps.push("ebit"); }
-
-  // Net profit
-  if (hasNP) { est.est_net_profit = f.net_profit; est.estimates.net_profit = { source: "filed" }; }
-  else { est.est_net_profit = (est.est_turnover || 0) * bench.net_margin; est.estimates.net_profit = { method: `${(bench.net_margin*100).toFixed(0)}% net margin`, source: "estimated" }; est.gaps.push("net_profit"); }
-
-  // Retained earnings
+  if (hasT) { est.est_turnover = f.turnover; est.est_turnover_low = f.turnover; est.est_turnover_high = f.turnover; est.estimates.revenue = { source: "filed" }; }
+  else if (hasEmp) { est.est_turnover = f.employees * bench.rev_per_employee; est.est_turnover_low = f.employees * bench.rev_per_employee * 0.7; est.est_turnover_high = f.employees * bench.rev_per_employee * 1.35; est.estimates.revenue = { source: "estimated" }; est.gaps.push("turnover"); }
+  else if (f.total_assets) { est.est_turnover = f.total_assets * bench.asset_turnover; est.est_turnover_low = f.total_assets * bench.asset_turnover * 0.5; est.est_turnover_high = f.total_assets * bench.asset_turnover * 1.5; est.estimates.revenue = { source: "estimated" }; est.gaps.push("turnover"); }
+  if (hasE) { est.estimates.ebit = { source: "filed" }; } else { est.estimates.ebit = { source: "estimated" }; }
+  if (hasNP) { est.estimates.net_profit = { source: "filed" }; } else { est.estimates.net_profit = { source: "estimated" }; }
   if (hasRE) est.est_retained_earnings = f.retained_earnings;
-  else { est.est_retained_earnings = Math.max(0, (f.net_assets || 0) - 100); est.gaps.push("retained_earnings"); }
-
-  // Implied profit
   if (prevF && f.net_assets != null && prevF.net_assets != null) est.est_implied_profit = f.net_assets - prevF.net_assets;
-
-  // Confidence
   let conf = 0.3;
   if (hasT) conf += 0.25; if (hasNP) conf += 0.15; if (hasE) conf += 0.15;
   if (hasGP) conf += 0.05; if (hasEmp) conf += 0.05; if (hasRE) conf += 0.05;
   est.confidence = Math.min(conf, 1.0);
-
   if (hasT && hasNP) est.method = "partial_pl"; else if (hasT) est.method = "turnover_only";
   else if (hasEmp) est.method = "sic_employee_model"; else est.method = "balance_sheet_only";
   est.dataFields = getDF(f);
   return est;
 }
-
 function getDF(f) {
   return { turnover: f.turnover != null, cost_of_sales: f.cost_of_sales != null, gross_profit: f.gross_profit != null, ebit: f.ebit != null, net_profit: f.net_profit != null, retained_earnings: f.retained_earnings != null, current_assets: f.current_assets != null, current_liabilities: f.current_liabilities != null, cash: f.cash != null, employees: f.employees != null && f.employees > 0 };
 }
 
-/* ═══════════════════════════════ ALTMAN Z' ═══════════════════════════════ */
-function calcZ(f, est) {
-  const t = f.turnover ?? est?.est_turnover ?? null;
-  const e = f.ebit ?? est?.est_ebit ?? null;
-  const re = f.retained_earnings ?? est?.est_retained_earnings ?? null;
-  if (t == null || e == null || !f.total_assets || !f.total_liabilities) return null;
-  const wc = (f.current_assets || 0) - (f.current_liabilities || 0);
-  const X1 = wc / f.total_assets, X2 = (re || 0) / f.total_assets, X3 = e / f.total_assets;
-  const X4 = (f.net_assets || 0) / f.total_liabilities, X5 = t / f.total_assets;
-  const z = 0.717*X1 + 0.847*X2 + 3.107*X3 + 0.420*X4 + 0.998*X5;
-  const src = { X1: "filed", X2: f.retained_earnings != null ? "filed" : "est", X3: f.ebit != null ? "filed" : (est?.estimates?.ebit?.source || "est"), X4: "filed", X5: f.turnover != null ? "filed" : "est" };
-  const real = Object.values(src).filter(s => s === "filed").length;
-  return { z, X1, X2, X3, X4, X5, wc, isModelled: f.turnover == null || f.ebit == null, inputSources: src, realInputCount: real };
-}
-
-function zZone(z) {
-  if (z > 2.9) return { zone: "SAFE", color: "#10b981", bg: "#052e16", border: "#14532d", desc: "Low probability of distress" };
-  if (z > 1.23) return { zone: "GREY", color: "#f59e0b", bg: "#451a03", border: "#78350f", desc: "Inconclusive — investigate further" };
-  return { zone: "DISTRESS", color: "#ef4444", bg: "#450a0a", border: "#7f1d1d", desc: "High probability of distress" };
-}
-
-/* ═══════════════════════════════ CLEARVIEW SCORE ═══════════════════════════════ */
-function calcCV(co, est) {
-  const f = co.financials[0], prev = co.financials[1]; let score = 50, signals = [];
-  if (co.accounts?.overdue) { score -= 25; signals.push({ text: "Accounts overdue", sev: "critical", pts: -25 }); }
-  else { score += 8; signals.push({ text: "Accounts filed on time", sev: "positive", pts: +8 }); }
-  if (co.confirmation_statement?.overdue) { score -= 8; signals.push({ text: "Confirmation statement overdue", sev: "warning", pts: -8 }); }
-  const types = co.filing_history_types || [];
-  if (types.length >= 2 && (types[0] === "micro-entity" || types[0] === "small") && types[types.length-1] === "full") { score -= 6; signals.push({ text: "Downgraded filing type", sev: "warning", pts: -6 }); }
-  if (f.net_assets != null && f.net_assets < 0) { score -= 20; signals.push({ text: "Negative net assets", sev: "critical", pts: -20 }); }
-  else if (f.total_assets > 0 && f.net_assets != null) { const eq = f.net_assets / f.total_assets; if (eq > 0.35) { score += 10; signals.push({ text: `Strong equity (${(eq*100).toFixed(0)}%)`, sev: "positive", pts: +10 }); } else if (eq < 0.1) { score -= 10; signals.push({ text: `Thin equity (${(eq*100).toFixed(0)}%)`, sev: "warning", pts: -10 }); } }
-  if (prev && f.net_assets != null && prev.net_assets != null) { const ch = ((f.net_assets - prev.net_assets) / (Math.abs(prev.net_assets) || 1)) * 100; if (ch < -30) { score -= 12; signals.push({ text: `Net assets down ${Math.abs(ch).toFixed(0)}%`, sev: "critical", pts: -12 }); } else if (ch > 10) { score += 6; signals.push({ text: `Net assets up ${ch.toFixed(0)}%`, sev: "positive", pts: +6 }); } }
-  if (est?.est_implied_profit !== undefined) { if (est.est_implied_profit > 0) { score += 5; signals.push({ text: `Implied profit ~${fmt(est.est_implied_profit)}`, sev: "positive", pts: +5 }); } else if (est.est_implied_profit < 0) { score -= 6; signals.push({ text: `Implied loss ~${fmt(est.est_implied_profit)}`, sev: "warning", pts: -6 }); } }
-  if (f.current_assets && f.current_liabilities) { const cr = f.current_assets / f.current_liabilities; if (cr < 0.5) { score -= 12; signals.push({ text: `Poor current ratio (${cr.toFixed(2)})`, sev: "critical", pts: -12 }); } else if (cr > 1.2) { score += 8; signals.push({ text: `Healthy current ratio (${cr.toFixed(2)})`, sev: "positive", pts: +8 }); } }
-  if (f.cash && f.creditors_due_within_year) { const cc = f.cash / f.creditors_due_within_year; if (cc < 0.05) { score -= 10; signals.push({ text: `Cash covers ${(cc*100).toFixed(0)}% of creditors`, sev: "critical", pts: -10 }); } else if (cc > 0.25) { score += 6; signals.push({ text: `Cash covers ${(cc*100).toFixed(0)}%`, sev: "positive", pts: +6 }); } }
-  if (f.net_profit != null) { if (f.net_profit < 0) { score -= 8; signals.push({ text: "Loss-making", sev: "warning", pts: -8 }); } else { score += 8; signals.push({ text: "Profitable", sev: "positive", pts: +8 }); } }
-  if (f.turnover != null && prev?.turnover) { const g = ((f.turnover - prev.turnover) / prev.turnover) * 100; if (g < -15) { score -= 8; signals.push({ text: `Revenue down ${Math.abs(g).toFixed(0)}%`, sev: "warning", pts: -8 }); } else if (g > 5) { score += 5; signals.push({ text: `Revenue up ${g.toFixed(0)}%`, sev: "positive", pts: +5 }); } }
-  const age = co.date_of_creation ? new Date().getFullYear() - new Date(co.date_of_creation).getFullYear() : 0;
-  if (age < 2) { score -= 5; signals.push({ text: `Young (${age}yr)`, sev: "warning", pts: -5 }); } else if (age >= 10) { score += 5; signals.push({ text: `Established (${age}yr)`, sev: "positive", pts: +5 }); }
-  if (co.charges?.outstanding > 3) { score -= 4; signals.push({ text: `${co.charges.outstanding} outstanding charges`, sev: "info", pts: -4 }); }
-  const resigned = (co.officers || []).filter(o => o.resigned); if (resigned.length) { score -= 3 * resigned.length; signals.push({ text: `${resigned.length} director(s) resigned`, sev: "info", pts: -3*resigned.length }); }
-  return { score: Math.max(0, Math.min(100, score)), signals };
-}
-
-function getRating(alt, cv) {
-  if (alt) { const z = alt.z, s = alt.isModelled ? "~" : "";
-    if (z >= 3.5) return { grade: `AAA${s}`, label: alt.isModelled ? "Excellent (mod.)" : "Excellent", color: "#10b981", bg: "#052e16" };
-    if (z >= 2.9) return { grade: `AA${s}`, label: alt.isModelled ? "Strong (mod.)" : "Strong", color: "#34d399", bg: "#052e16" };
-    if (z >= 2.5) return { grade: `A${s}`, label: alt.isModelled ? "Good (mod.)" : "Good", color: "#6ee7b7", bg: "#064e3b" };
-    if (z >= 2.0) return { grade: `BBB${s}`, label: alt.isModelled ? "Adequate (mod.)" : "Adequate", color: "#fbbf24", bg: "#451a03" };
-    if (z >= 1.5) return { grade: `BB${s}`, label: alt.isModelled ? "Speculative (mod.)" : "Speculative", color: "#f59e0b", bg: "#451a03" };
-    if (z >= 1.23) return { grade: `B${s}`, label: alt.isModelled ? "Vulnerable (mod.)" : "Vulnerable", color: "#f97316", bg: "#431407" };
-    if (z >= 0.5) return { grade: `CCC${s}`, label: "High Risk", color: "#ef4444", bg: "#450a0a" };
-    return { grade: `D${s}`, label: "Distress", color: "#dc2626", bg: "#450a0a" };
-  }
-  const sc = cv.score;
-  if (sc >= 80) return { grade: "AA*", label: "Strong (est.)", color: "#34d399", bg: "#052e16" };
-  if (sc >= 65) return { grade: "A*", label: "Good (est.)", color: "#6ee7b7", bg: "#064e3b" };
-  if (sc >= 50) return { grade: "BBB*", label: "Adequate (est.)", color: "#fbbf24", bg: "#451a03" };
-  if (sc >= 35) return { grade: "BB*", label: "Speculative (est.)", color: "#f59e0b", bg: "#451a03" };
-  if (sc >= 20) return { grade: "B*", label: "Vulnerable (est.)", color: "#f97316", bg: "#431407" };
-  return { grade: "CCC*", label: "High Risk (est.)", color: "#ef4444", bg: "#450a0a" };
-}
-
-/* ═══════════════════════════════ UI UTILS ═══════════════════════════════ */
-const fmt = (n) => { if (n == null) return "—"; const a = Math.abs(n); const s = n < 0 ? "-" : ""; if (a >= 1e9) return `${s}£${(a/1e9).toFixed(1)}bn`; if (a >= 1e6) return `${s}£${(a/1e6).toFixed(1)}m`; if (a >= 1e3) return `${s}£${(a/1e3).toFixed(0)}k`; return `${s}£${a}`; };
-const pf = (n) => n == null ? "—" : `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
+/* ═══════════════════════════ UI UTILS ═══════════════════════════ */
+const fmt = (n) => { if (n == null) return "\u2014"; const a = Math.abs(n); const s = n < 0 ? "-" : ""; if (a >= 1e9) return s+"\u00A3"+(a/1e9).toFixed(1)+"bn"; if (a >= 1e6) return s+"\u00A3"+(a/1e6).toFixed(1)+"m"; if (a >= 1e3) return s+"\u00A3"+(a/1e3).toFixed(0)+"k"; return s+"\u00A3"+a; };
+const pf = (n) => n == null ? "\u2014" : (n > 0 ? "+" : "")+n.toFixed(1)+"%";
 
 function MiniChart({ data, dataKey, color, height = 48 }) {
   const vals = data.map(d => d[dataKey]).filter(v => v != null);
   if (!vals.length) return <span style={{ color: "#475569", fontSize: 10, fontStyle: "italic" }}>Not disclosed</span>;
-  const min = Math.min(...vals, 0); const max = Math.max(...vals); const range = max - min || 1;
+  const min = Math.min(...vals, 0), max = Math.max(...vals), range = max - min || 1;
   const w = 148, pad = 6;
   const pts = vals.map((v, i) => ({ x: pad + (i / (vals.length - 1 || 1)) * (w - pad * 2), y: pad + (1 - (v - min) / range) * (height - pad * 2) }));
-  const line = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
-  const area = line + ` L${pts[pts.length-1].x},${height-2} L${pts[0].x},${height-2} Z`;
-  const uid = `${dataKey}-${color.replace("#","")}`;
+  const line = pts.map((p, i) => (i === 0 ? "M" : "L")+p.x+","+p.y).join(" ");
+  const area = line + " L"+pts[pts.length-1].x+","+(height-2)+" L"+pts[0].x+","+(height-2)+" Z";
+  const uid = dataKey+"-"+color.replace("#","");
   return (<svg width={w} height={height} style={{ display: "block" }}>
     <defs><linearGradient id={uid} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.2" /><stop offset="100%" stopColor={color} stopOpacity="0" /></linearGradient></defs>
     {min < 0 && <line x1={pad} y1={pad + (1 - (0-min)/range)*(height-pad*2)} x2={w-pad} y2={pad + (1 - (0-min)/range)*(height-pad*2)} stroke="#334155" strokeWidth={1} strokeDasharray="3,2" />}
-    <path d={area} fill={`url(#${uid})`} /><path d={line} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    <path d={area} fill={"url(#"+uid+")"} /><path d={line} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
     {pts.map((p,i) => <circle key={i} cx={p.x} cy={p.y} r={2.5} fill={color} />)}
   </svg>);
 }
 
 function Stat({ label, value, sub, alert, source }) {
   const isEst = source === "estimated" || source === "derived";
-  return (<div style={{ padding: "11px 13px", background: "#0b1120", borderRadius: 8, border: `1px solid ${alert ? "#7f1d1d" : "#1e293b"}`, position: "relative" }}>
-    {isEst && <div style={{ position: "absolute", top: 3, right: 5, fontSize: 7, color: source === "derived" ? "#f59e0b" : "#818cf8", fontWeight: 700, letterSpacing: 0.5, padding: "1px 4px", background: source === "derived" ? "#451a03" : "#1e1b4b", borderRadius: 3 }}>{source === "derived" ? "DER" : "EST"}</div>}
+  return (<div style={{ padding: "11px 13px", background: "#0b1120", borderRadius: 8, border: "1px solid "+(alert ? "#7f1d1d" : "#1e293b"), position: "relative" }}>
+    {isEst && <div style={{ position: "absolute", top: 3, right: 5, fontSize: 7, color: "#818cf8", fontWeight: 700, letterSpacing: 0.5, padding: "1px 4px", background: "#1e1b4b", borderRadius: 3 }}>EST</div>}
     <div style={{ fontSize: 9, color: "#64748b", fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
     <div style={{ fontSize: 17, fontWeight: 700, color: alert ? "#f87171" : isEst ? "#a5b4fc" : "#f1f5f9", fontFamily: "'JetBrains Mono', monospace", letterSpacing: -0.5 }}>{value}</div>
     {sub && <div style={{ fontSize: 9, color: "#64748b", marginTop: 2 }}>{sub}</div>}
   </div>);
 }
 
-/* ═══════════════════════════════ DATA COMPLETENESS ═══════════════════════════════ */
+/* ═══════════════════════════ DATA BAR ═══════════════════════════ */
 function DataBar({ est, accountType }) {
   const fields = [{ k: "turnover", l: "Turnover" }, { k: "gross_profit", l: "Gross Profit" }, { k: "ebit", l: "EBIT" }, { k: "net_profit", l: "Net Profit" }, { k: "retained_earnings", l: "Ret. Earnings" }, { k: "current_assets", l: "Current Assets" }, { k: "cash", l: "Cash" }, { k: "employees", l: "Employees" }];
   const filed = fields.filter(f => est.dataFields?.[f.k]); const pct = (filed.length / fields.length * 100).toFixed(0);
   return (<div style={{ background: "#0b1120", borderRadius: 10, border: "1px solid #1e293b", padding: "14px 18px", marginBottom: 20 }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
       <div><span style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8", letterSpacing: 1, textTransform: "uppercase" }}>Data Completeness</span><span style={{ fontSize: 9, color: "#475569", marginLeft: 8 }}>({accountType} accounts)</span></div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 80, height: 5, background: "#1e293b", borderRadius: 3, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: +pct > 70 ? "#10b981" : +pct > 40 ? "#f59e0b" : "#ef4444", borderRadius: 3 }} /></div><span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", fontFamily: "'JetBrains Mono', monospace" }}>{pct}%</span></div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 80, height: 5, background: "#1e293b", borderRadius: 3, overflow: "hidden" }}><div style={{ width: pct+"%", height: "100%", background: +pct > 70 ? "#10b981" : +pct > 40 ? "#f59e0b" : "#ef4444", borderRadius: 3 }} /></div><span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", fontFamily: "'JetBrains Mono', monospace" }}>{pct}%</span></div>
     </div>
     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-      {fields.map(f => { const has = est.dataFields?.[f.k]; const wasEst = !has && (est.estimates?.[f.k]?.source === "estimated" || est.estimates?.[f.k]?.source === "derived");
-        return (<div key={f.k} style={{ fontSize: 9, fontWeight: 600, padding: "3px 8px", borderRadius: 4, background: has ? "#052e16" : wasEst ? "#1e1b4b" : "#0f172a", color: has ? "#6ee7b7" : wasEst ? "#818cf8" : "#334155", border: `1px solid ${has ? "#14532d" : wasEst ? "#312e81" : "#1e293b"}` }}>{has ? "✓" : wasEst ? "≈" : "✗"} {f.l}</div>); })}
+      {fields.map(f => { const has = est.dataFields?.[f.k]; return (<div key={f.k} style={{ fontSize: 9, fontWeight: 600, padding: "3px 8px", borderRadius: 4, background: has ? "#052e16" : "#0f172a", color: has ? "#6ee7b7" : "#334155", border: "1px solid "+(has ? "#14532d" : "#1e293b") }}>{has ? "\u2713" : "\u2717"} {f.l}</div>); })}
     </div>
-    <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 8, color: "#475569" }}><span><span style={{ color: "#6ee7b7" }}>✓</span> Filed</span><span><span style={{ color: "#818cf8" }}>≈</span> Estimated</span><span><span style={{ color: "#334155" }}>✗</span> Missing</span></div>
   </div>);
 }
 
-/* ═══════════════════════════════ ESTIMATION PANEL ═══════════════════════════════ */
-function EstPanel({ est, f, co }) {
-  if (!est.estimated) return null;
-  const bench = est.benchmark, hasRT = f.turnover != null, hasRP = f.net_profit != null;
-  return (<div style={{ background: "linear-gradient(135deg, #0b1120 0%, #0f0f2e 100%)", borderRadius: 12, border: "1px solid #312e81", padding: "16px 20px", marginBottom: 20 }}>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-      <div>
-        <div style={{ fontSize: 9, fontWeight: 700, color: "#818cf8", letterSpacing: 1.5, textTransform: "uppercase" }}>{hasRT && hasRP ? "Gap-Fill Estimates" : hasRT ? "Gap-Fill (margins from SIC)" : "SIC Benchmark Estimates"}</div>
-        <div style={{ fontSize: 10, color: "#64748b", marginTop: 2, maxWidth: 500 }}>
-          {hasRT && hasRP ? `Turnover & profit filed. EBIT derived.` : hasRT ? `Turnover filed (${fmt(f.turnover)}). Margins from ${bench.sample_size.toLocaleString()} filers in ${bench.sector}.` : `All figures estimated from ${bench.sample_size.toLocaleString()} filers in ${bench.sector} (SIC ${(co.sic_codes||[])[0]}).`}
+/* ═══════════════════════════ SCORE RING ═══════════════════════════ */
+function ScoreRing({ score, grade, label, color, size = 130 }) {
+  const r = (size - 12) / 2, circ = 2 * Math.PI * r;
+  const offset = circ * (1 - Math.max(0, Math.min(100, score)) / 100);
+  return (
+    <div style={{ position: "relative", width: size, height: size }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1e293b" strokeWidth={6} />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={6}
+          strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
+          style={{ transition: "stroke-dashoffset 1s ease-out" }} />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ fontSize: 28, fontWeight: 800, color, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>{grade}</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#94a3b8", fontFamily: "'JetBrains Mono', monospace", lineHeight: 1, marginTop: 2 }}>{Math.round(score)}</div>
+        <div style={{ fontSize: 8, fontWeight: 600, color: "#475569", marginTop: 3, letterSpacing: 0.5 }}>{label}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════ PILLAR BAR ═══════════════════════════ */
+function PillarBar({ label, score, icon, description }) {
+  const col = score >= 65 ? "#10b981" : score >= 50 ? "#f59e0b" : score >= 35 ? "#f97316" : "#ef4444";
+  const txt = score >= 65 ? "Good" : score >= 50 ? "Fair" : score >= 35 ? "Weak" : "Poor";
+  return (
+    <div style={{ padding: "12px 16px", background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 13 }}>{icon}</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#e2e8f0" }}>{label}</span>
+        </div>
+        <span style={{ fontSize: 10, fontWeight: 700, color: col, fontFamily: "'JetBrains Mono', monospace" }}>{txt}</span>
+      </div>
+      <div style={{ height: 5, background: "#1e293b", borderRadius: 3, overflow: "hidden" }}>
+        <div style={{ width: score+"%", height: "100%", background: col, borderRadius: 3, transition: "width 0.8s ease-out" }} />
+      </div>
+      <div style={{ fontSize: 9, color: "#64748b", marginTop: 5 }}>{description}</div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════ ASSESSMENT PANEL ═══════════════════════════ */
+function AssessmentPanel({ assessment, companyName }) {
+  if (!assessment) return null;
+  const { clearview_score, rating, confidence, pillars } = assessment;
+  const col = rating.grade === "A" ? "#10b981" : rating.grade === "B" ? "#34d399" : rating.grade === "C" ? "#f59e0b" : rating.grade === "D" ? "#f97316" : rating.grade === "E" ? "#ef4444" : "#dc2626";
+  const confCol = confidence === "high" ? "#10b981" : confidence === "medium" ? "#f59e0b" : "#ef4444";
+  const confLabel = confidence === "high" ? "High confidence" : confidence === "medium" ? "Medium confidence" : "Limited data";
+
+  const fh = pillars.financial_health.score;
+  const fhD = fh >= 65 ? "Balance sheet looks healthy with adequate reserves and manageable debts." : fh >= 50 ? "Financials are acceptable but some ratios could be stronger." : fh >= 35 ? "Some financial concerns \u2014 thin margins or high debts relative to assets." : "Significant financial stress \u2014 liabilities may exceed assets or liquidity is very tight.";
+  const st = pillars.stability.score;
+  const stD = st >= 65 ? "Well-established with a stable track record and clean filing history." : st >= 50 ? "Reasonably stable but some factors worth noting." : st >= 35 ? "Some warning signs around company governance or filing behaviour." : "Multiple red flags \u2014 late filings, director changes, or other concerns.";
+  const tr = pillars.trend.score;
+  const trD = tr >= 65 ? "Key figures are improving year-on-year." : tr >= 50 ? "Figures are broadly stable compared to last year." : tr >= 35 ? "Some measures are declining \u2014 worth monitoring." : "Significant deterioration in financial position.";
+
+  const signals = pillars.stability.signals || [];
+  const flags = signals.filter(s => s[2] === "high_risk" || s[2] === "risk" || s[2] === "caution");
+  const positives = signals.filter(s => s[2] === "positive");
+  const trends = (pillars.trend.details || []).filter(t => t[0] !== "Insufficient data for trend analysis");
+  const trendFlags = trends.filter(t => t[2] === "risk" || t[2] === "high_risk");
+  const trendPos = trends.filter(t => t[2] === "positive");
+  const trendInfo = trends.filter(t => t[2] === "info");
+
+  let vp = [];
+  if (clearview_score >= 65) vp.push(companyName+" appears to be in "+rating.label.toLowerCase()+" financial health.");
+  else if (clearview_score >= 50) vp.push(companyName+" shows a fair financial position with some areas to watch.");
+  else if (clearview_score >= 35) vp.push(companyName+" shows signs of financial weakness.");
+  else vp.push(companyName+" shows significant signs of financial distress.");
+  if (flags.length > 0) vp.push("Key concern: "+flags[0][0].toLowerCase()+".");
+  if (trendInfo.length > 0) vp.push(trendInfo[0][0]+".");
+  if (clearview_score >= 65) vp.push("Standard credit terms appear reasonable.");
+  else if (clearview_score >= 50) vp.push("Consider monitoring or requesting references before extending significant credit.");
+  else if (clearview_score >= 35) vp.push("Consider upfront payment or reduced credit terms.");
+  else vp.push("Upfront payment or guarantees strongly recommended.");
+  if (confidence === "low") vp.push("Note: limited data available \u2014 treat this assessment with caution.");
+
+  const allFlags = [...flags, ...trendFlags];
+  const allPos = [...positives, ...trendPos];
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 16, marginBottom: 16 }}>
+        <div style={{ background: "#0b1120", borderRadius: 14, border: "1px solid "+col+"22", padding: "20px 24px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minWidth: 178 }}>
+          <div style={{ fontSize: 8, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10 }}>Clearview Score</div>
+          <ScoreRing score={clearview_score} grade={rating.grade} label={rating.label} color={col} />
+          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: confCol }} />
+            <span style={{ fontSize: 9, color: "#64748b" }}>{confLabel}</span>
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <PillarBar label="Financial Health" score={fh} icon={"\uD83D\uDCCA"} description={fhD} />
+          <PillarBar label="Company Stability" score={st} icon={"\uD83C\uDFE2"} description={stD} />
+          <PillarBar label="Year-on-Year Trend" score={tr} icon={"\uD83D\uDCC8"} description={trD} />
         </div>
       </div>
-      <div style={{ padding: "3px 8px", borderRadius: 5, background: "#1e1b4b", border: "1px solid #312e81", whiteSpace: "nowrap" }}><span style={{ fontSize: 8, fontWeight: 700, color: "#818cf8" }}>n={bench.sample_size.toLocaleString()}</span></div>
-    </div>
-    {!hasRT && <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 12 }}>
-      {[{ l: "Rev/Employee", v: `£${(bench.rev_per_employee/1000).toFixed(0)}k` }, { l: "Gross Margin", v: `${(bench.gross_margin*100).toFixed(0)}%` }, { l: "EBIT Margin", v: `${(bench.ebit_margin*100).toFixed(0)}%` }].map(b => (<div key={b.l} style={{ padding: "7px 9px", background: "#0f0f2e", borderRadius: 5, border: "1px solid #1e1b4b" }}><div style={{ fontSize: 8, color: "#6366f1", fontWeight: 600 }}>{b.l}</div><div style={{ fontSize: 14, fontWeight: 700, color: "#c7d2fe", fontFamily: "'JetBrains Mono', monospace", marginTop: 1 }}>{b.v}</div></div>))}
-    </div>}
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 6, marginBottom: 8 }}>
-      {[{ l: "Turnover", v: est.est_turnover, real: f.turnover != null, range: !hasRT && est.est_turnover_low ? `${fmt(est.est_turnover_low)}–${fmt(est.est_turnover_high)}` : null, m: est.estimates?.revenue?.method },
-        { l: "Gross Profit", v: est.est_gross_profit, real: f.gross_profit != null, m: est.estimates?.gross_profit?.method },
-        { l: "EBIT", v: est.est_ebit, real: f.ebit != null, m: est.estimates?.ebit?.method },
-        { l: "Net Profit", v: est.est_net_profit, real: f.net_profit != null, m: est.estimates?.net_profit?.method },
-      ].map(item => (<div key={item.l} style={{ padding: "9px 11px", background: "#0f0f2e", borderRadius: 6, border: `1px solid ${item.real ? "#14532d" : "#1e1b4b"}` }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 8, color: item.real ? "#6ee7b7" : "#818cf8", fontWeight: 600 }}>{item.l}</span>
-          <span style={{ fontSize: 7, color: item.real ? "#6ee7b7" : "#818cf8", fontWeight: 700, padding: "1px 4px", background: item.real ? "#052e16" : "#1e1b4b", borderRadius: 2 }}>{item.real ? "FILED" : "EST"}</span>
+
+      {(allFlags.length > 0 || allPos.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: allFlags.length > 0 && allPos.length > 0 ? "1fr 1fr" : "1fr", gap: 10, marginBottom: 16 }}>
+          {allFlags.length > 0 && (
+            <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "12px 16px" }}>
+              <div style={{ fontSize: 8, fontWeight: 700, color: "#f87171", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Concerns</div>
+              {allFlags.map((s, i) => (
+                <div key={i} style={{ fontSize: 10, color: s[2] === "high_risk" ? "#fca5a5" : s[2] === "risk" ? "#fdba74" : "#fde68a", padding: "3px 0", display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontSize: 6, color: s[2] === "high_risk" ? "#ef4444" : s[2] === "risk" ? "#f97316" : "#f59e0b" }}>{"\u25CF"}</span> {s[0]}
+                </div>
+              ))}
+            </div>
+          )}
+          {allPos.length > 0 && (
+            <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "12px 16px" }}>
+              <div style={{ fontSize: 8, fontWeight: 700, color: "#6ee7b7", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Strengths</div>
+              {allPos.map((s, i) => (
+                <div key={i} style={{ fontSize: 10, color: "#6ee7b7", padding: "3px 0", display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontSize: 6, color: "#10b981" }}>{"\u25CF"}</span> {s[0]}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <div style={{ fontSize: 15, fontWeight: 700, color: item.real ? "#e0e7ff" : "#a5b4fc", fontFamily: "'JetBrains Mono', monospace", marginTop: 3 }}>{fmt(item.v)}</div>
-        {item.range && <div style={{ fontSize: 8, color: "#475569", marginTop: 2 }}>Range: {item.range}</div>}
-        {!item.real && item.m && <div style={{ fontSize: 8, color: "#4338ca", marginTop: 2 }}>{item.m}</div>}
-      </div>))}
-    </div>
-    {est.est_implied_profit !== undefined && (<div style={{ padding: "8px 11px", background: "#0f0f2e", borderRadius: 5, border: "1px solid #1e1b4b" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 8, color: "#818cf8", fontWeight: 600 }}>Cross-check: implied profit from net asset change</span>
-        <span style={{ fontSize: 14, fontWeight: 700, color: est.est_implied_profit >= 0 ? "#6ee7b7" : "#f87171", fontFamily: "'JetBrains Mono', monospace" }}>{fmt(est.est_implied_profit)}</span>
+      )}
+
+      {trendInfo.length > 0 && (
+        <div style={{ background: "#0f0f2e", borderRadius: 8, border: "1px solid #312e81", padding: "10px 14px", marginBottom: 16 }}>
+          {trendInfo.map((t, i) => (
+            <div key={i} style={{ fontSize: 11, color: "#a5b4fc", fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 10 }}>{"\uD83D\uDCA1"}</span> {t[0]}
+              <span style={{ fontSize: 8, color: "#475569", marginLeft: "auto" }}>Based on balance sheet movements</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ background: "linear-gradient(135deg, #0b1120 0%, #1a1033 100%)", borderRadius: 10, border: "1px solid #2e1065", padding: "16px 20px" }}>
+        <div style={{ fontSize: 8, fontWeight: 700, color: "#a78bfa", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>Recommendation</div>
+        <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.7 }}>{vp.join(" ")}</div>
       </div>
-    </div>)}
-    <div style={{ fontSize: 8, color: "#4338ca", marginTop: 8 }}>ⓘ Industry medians from full-account filers. Individual companies may differ.</div>
-  </div>);
-}
-
-/* ═══════════════════════════════ Z-SCORE BREAKDOWN ═══════════════════════════════ */
-function ZBreakdown({ alt }) {
-  const comps = [{ l: "X1 · Working Capital / Assets", v: alt.X1, w: 0.717, d: "Liquidity" }, { l: "X2 · Retained Earnings / Assets", v: alt.X2, w: 0.847, d: "Cumul. profitability" }, { l: "X3 · EBIT / Assets", v: alt.X3, w: 3.107, d: "Operating efficiency" }, { l: "X4 · Equity / Liabilities", v: alt.X4, w: 0.420, d: "Leverage" }, { l: "X5 · Sales / Assets", v: alt.X5, w: 0.998, d: "Asset utilisation" }];
-  const maxC = Math.max(...comps.map(c => Math.abs(c.v * c.w)));
-  return (<div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-    {comps.map((c, i) => { const con = c.v * c.w; const src = alt.inputSources?.[`X${i+1}`];
-      return (<div key={i}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
-        <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 500 }}>{c.l}{src && src !== "filed" && <span style={{ fontSize: 7, color: "#818cf8", marginLeft: 4, padding: "1px 3px", background: "#1e1b4b", borderRadius: 2 }}>EST</span>}</span>
-        <span style={{ fontSize: 11, fontWeight: 700, color: con < 0 ? "#f87171" : "#6ee7b7", fontFamily: "'JetBrains Mono', monospace" }}>{con >= 0 ? "+" : ""}{con.toFixed(3)}</span>
-      </div><div style={{ height: 3, background: "#1e293b", borderRadius: 2, overflow: "hidden" }}><div style={{ width: `${(Math.abs(con)/(maxC||1))*100}%`, height: "100%", borderRadius: 2, background: con < 0 ? "#ef4444" : "#10b981" }} /></div></div>); })}
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4, paddingTop: 6, borderTop: "1px solid #1e293b" }}>
-      <span style={{ fontSize: 9, color: "#475569" }}>{alt.realInputCount}/5 inputs from filed data</span>
-      <div><span style={{ fontSize: 9, color: "#64748b", marginRight: 6 }}>Z'-Score</span><span style={{ fontSize: 14, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: zZone(alt.z).color }}>{alt.z.toFixed(3)}</span></div>
     </div>
-  </div>);
+  );
 }
 
-/* ═══════════════════════════════ VERDICT ═══════════════════════════════ */
-function verdict(co, alt, cv, rat, est) {
-  const f = co.financials[0]; let p = [`${co.company_name} is rated ${rat.grade} (${rat.label.toLowerCase()}).`];
-  if (alt) { const zn = zZone(alt.z); p.push(`Altman Z'-Score: ${alt.z.toFixed(2)} (${zn.zone.toLowerCase()} zone${alt.isModelled ? `, ${alt.realInputCount}/5 filed inputs` : ""}).`); }
-  if (est?.estimated && est.est_turnover) { if (f.turnover != null) p.push(`Filed turnover: ${fmt(f.turnover)}.${f.net_profit != null ? ` Net profit: ${fmt(f.net_profit)}.` : ""}`); else p.push(`Estimated turnover ~${fmt(est.est_turnover)}.`); }
-  if (f.net_assets != null && f.net_assets < 0) p.push(`Negative net assets (${fmt(f.net_assets)}).`);
-  if (f.cash && f.creditors_due_within_year && f.cash/f.creditors_due_within_year < 0.1) p.push(`Cash covers only ${(f.cash/f.creditors_due_within_year*100).toFixed(0)}% of short-term creditors.`);
-  if (co.accounts?.overdue) p.push(`Accounts overdue.`);
-  if (alt && alt.z > 2.9 && !alt.isModelled) p.push(`Filed accounts indicate financial health.`);
-  else if (alt && alt.z > 2.9 && alt.isModelled) p.push(`Modelled score suggests health — consider requesting accounts for confirmation.`);
-  else if (alt && alt.z > 1.23) p.push(`Grey zone — further investigation warranted.`);
-  else if (alt && alt.z <= 1.23) p.push(`Distress zone — consider upfront payment or guarantees.`);
-  if (est?.confidence < 0.5) p.push(`Low data confidence (${(est.confidence*100).toFixed(0)}%).`);
-  return p.join(" ");
+/* ═══════════════════════════ SCORE EXPLAINER ═══════════════════════════ */
+function ScoreExplainer() {
+  const [open, setOpen] = useState(false);
+  const bands = [
+    { g: "A", l: "Strong", c: "#10b981", r: "80\u2013100" },
+    { g: "B", l: "Good", c: "#34d399", r: "65\u201379" },
+    { g: "C", l: "Fair", c: "#f59e0b", r: "50\u201364" },
+    { g: "D", l: "Weak", c: "#f97316", r: "35\u201349" },
+    { g: "E", l: "Poor", c: "#ef4444", r: "20\u201334" },
+    { g: "F", l: "Critical", c: "#dc2626", r: "0\u201319" },
+  ];
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <button onClick={() => setOpen(!open)} style={{ all: "unset", cursor: "pointer", fontSize: 10, color: "#6366f1", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+        {open ? "\u25BE" : "\u25B8"} What does this score mean?
+      </button>
+      {open && (
+        <div style={{ background: "#0b1120", borderRadius: 10, border: "1px solid #1e293b", padding: "16px 20px", marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: "#cbd5e1", lineHeight: 1.8 }}>
+            <p style={{ marginBottom: 10 }}>The <strong style={{ color: "#a5b4fc" }}>Clearview Score</strong> (0\u2013100) assesses a company's creditworthiness using publicly available data from Companies House. It combines three areas:</p>
+            <p style={{ marginBottom: 6 }}><strong style={{ color: "#e2e8f0" }}>{"\uD83D\uDCCA"} Financial Health</strong> \u2014 analyses the balance sheet for solvency, liquidity, and leverage. Can the company pay its debts? Does it have enough cash? How much does it owe relative to what it owns?</p>
+            <p style={{ marginBottom: 6 }}><strong style={{ color: "#e2e8f0" }}>{"\uD83C\uDFE2"} Company Stability</strong> \u2014 considers how long the company has been trading, whether filings are up to date, director changes, and any outstanding secured debts registered against the company.</p>
+            <p style={{ marginBottom: 10 }}><strong style={{ color: "#e2e8f0" }}>{"\uD83D\uDCC8"} Year-on-Year Trend</strong> \u2014 tracks whether the company's financial position is improving, stable, or getting worse compared to the previous year.</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
+              {bands.map(b => (
+                <div key={b.g} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: "#060a12", borderRadius: 5 }}>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: b.c, fontFamily: "'JetBrains Mono', monospace", width: 20 }}>{b.g}</span>
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: "#e2e8f0" }}>{b.l}</div>
+                    <div style={{ fontSize: 8, color: "#475569" }}>{b.r}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: 10, color: "#475569" }}>
+              The confidence indicator reflects how much data was available. Most UK small companies file balance-sheet-only accounts \u2014 scores for these companies are still meaningful but should be treated with more caution than scores based on full accounts.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-/* ═══════════════════════════════ LOADING STATE ═══════════════════════════════ */
+/* ═══════════════════════════ LOADING ═══════════════════════════ */
 function LoadingState() {
   return (<div style={{ textAlign: "center", padding: "60px 20px" }}>
     <div style={{ width: 40, height: 40, border: "3px solid #1e293b", borderTopColor: "#6366f1", borderRadius: "50%", margin: "0 auto 16px", animation: "spin 0.8s linear infinite" }} />
-    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    <style>{"@keyframes spin { to { transform: rotate(360deg); } }"}</style>
     <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: 500 }}>Fetching company data...</div>
     <div style={{ fontSize: 10, color: "#475569", marginTop: 4 }}>Parsing Companies House filings & iXBRL accounts</div>
   </div>);
 }
 
-/* ═══════════════════════════════ DASHBOARD ═══════════════════════════════ */
+/* ═══════════════════════════ DASHBOARD ═══════════════════════════ */
 function Dashboard({ company, onBack }) {
   if (!company.financials || !company.financials.length) {
     return (<div style={{ padding: 40, textAlign: "center" }}>
-      <button onClick={onBack} style={{ all: "unset", cursor: "pointer", color: "#6366f1", fontSize: 11, fontWeight: 600, marginBottom: 18, display: "flex", alignItems: "center", gap: 4 }}>‹ Back</button>
+      <button onClick={onBack} style={{ all: "unset", cursor: "pointer", color: "#6366f1", fontSize: 11, fontWeight: 600, marginBottom: 18, display: "flex", alignItems: "center", gap: 4 }}>{"\u2039"} Back</button>
       <div style={{ fontSize: 16, color: "#f1f5f9", fontWeight: 700, marginBottom: 8 }}>{company.company_name}</div>
-      <div style={{ fontSize: 12, color: "#64748b" }}>No parseable financial data found. This company may only file PDF accounts, or the iXBRL parser couldn't extract data from the filing format used.</div>
+      <div style={{ fontSize: 12, color: "#64748b" }}>No parseable financial data found. This company may only file PDF accounts.</div>
       <div style={{ marginTop: 20, padding: "14px 18px", background: "#0b1120", borderRadius: 10, border: "1px solid #1e293b", textAlign: "left" }}>
         <div style={{ fontSize: 9, fontWeight: 700, color: "#64748b", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Company Details</div>
-        <div style={{ fontSize: 11, color: "#e2e8f0" }}>{company.company_number} · {company.type?.toUpperCase()} · {company.company_status}</div>
-        <div style={{ fontSize: 10, color: "#475569", marginTop: 2 }}>{company.sic_codes?.join(", ")} — {company.sic_desc}</div>
-        <div style={{ fontSize: 10, color: "#475569", marginTop: 2 }}>Accounts: {company.accounts?.last_accounts?.type} ({company.accounts?.last_accounts?.made_up_to})</div>
-        {company.accounts?.overdue && <div style={{ fontSize: 11, color: "#f87171", fontWeight: 600, marginTop: 6 }}>⚠ Accounts overdue</div>}
+        <div style={{ fontSize: 11, color: "#e2e8f0" }}>{company.company_number} \u00B7 {(company.type||"").toUpperCase()} \u00B7 {company.company_status}</div>
+        <div style={{ fontSize: 10, color: "#475569", marginTop: 2 }}>{(company.sic_codes||[]).join(", ")} \u2014 {company.sic_desc}</div>
+        {company.accounts?.overdue && <div style={{ fontSize: 11, color: "#f87171", fontWeight: 600, marginTop: 6 }}>{"\u26A0"} Accounts overdue</div>}
       </div>
     </div>);
   }
@@ -322,10 +344,6 @@ function Dashboard({ company, onBack }) {
   const f = company.financials[0], prev = company.financials[1];
   const sic = (company.sic_codes || [])[0];
   const est = estimateFinancials(f, sic, prev);
-  const alt = calcZ(f, est);
-  const cv = calcCV(company, est);
-  const rat = alt ? getRating(alt, cv) : getRating(null, cv);
-  const zz = alt ? zZone(alt.z) : null;
   const [vis, setVis] = useState(false);
   useEffect(() => { requestAnimationFrame(() => setVis(true)); }, []);
 
@@ -333,119 +351,72 @@ function Dashboard({ company, onBack }) {
   const addr = company.registered_office_address || {};
   const addrStr = [addr.address_line_1, addr.address_line_2, addr.locality, addr.region, addr.postal_code].filter(Boolean).join(", ");
   const revFin = [...company.financials].reverse();
-  const posS = cv.signals.filter(s => s.sev === "positive");
-  const negS = cv.signals.filter(s => s.sev !== "positive" && s.pts !== 0);
   const methodLabel = est.method === "full" ? "Full P&L" : est.method === "partial_pl" ? "Partial P&L" : est.method === "turnover_only" ? "Turnover only" : est.method === "sic_employee_model" ? "SIC estimated" : "Balance sheet only";
 
   return (<div style={{ opacity: vis ? 1 : 0, transform: vis ? "none" : "translateY(14px)", transition: "all 0.45s cubic-bezier(0.4,0,0.2,1)" }}>
-    <button onClick={onBack} style={{ all: "unset", cursor: "pointer", color: "#6366f1", fontSize: 11, fontWeight: 600, marginBottom: 16, display: "flex", alignItems: "center", gap: 4 }}>‹ Back to search</button>
+    <button onClick={onBack} style={{ all: "unset", cursor: "pointer", color: "#6366f1", fontSize: 11, fontWeight: 600, marginBottom: 16, display: "flex", alignItems: "center", gap: 4 }}>{"\u2039"} Back to search</button>
 
-    {/* Header */}
     <div style={{ marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: "#f1f5f9", margin: 0 }}>{company.company_name}</h1>
         <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: company.company_status === "active" ? "#064e3b" : "#7f1d1d", color: company.company_status === "active" ? "#6ee7b7" : "#fca5a5", textTransform: "uppercase", letterSpacing: 0.5 }}>{company.company_status}</span>
         <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: "#1e1b4b", color: "#a5b4fc", border: "1px solid #312e81" }}>{methodLabel}</span>
       </div>
-      <div style={{ fontSize: 11, color: "#94a3b8" }}>{company.company_number} · {(company.type || "").toUpperCase()} · {age}yr · {addrStr}</div>
-      <div style={{ fontSize: 10, color: "#475569", marginTop: 1 }}>SIC {sic} — {company.sic_desc}</div>
+      <div style={{ fontSize: 11, color: "#94a3b8" }}>{company.company_number} {"\u00B7"} {(company.type || "").toUpperCase()} {"\u00B7"} {age}yr {"\u00B7"} {addrStr}</div>
+      <div style={{ fontSize: 10, color: "#475569", marginTop: 1 }}>SIC {sic} {"\u2014"} {company.sic_desc}</div>
     </div>
 
-    {/* Rating + Z-Score */}
-    <div style={{ display: "grid", gridTemplateColumns: "170px 1fr", gap: 12, marginBottom: 20 }}>
-      <div style={{ background: rat.bg, borderRadius: 12, border: `1px solid ${rat.color}33`, padding: "16px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ fontSize: 8, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>Credit Rating</div>
-        <div style={{ fontSize: 34, fontWeight: 800, color: rat.color, fontFamily: "'JetBrains Mono', monospace", letterSpacing: -1, lineHeight: 1 }}>{rat.grade}</div>
-        <div style={{ fontSize: 10, fontWeight: 600, color: rat.color, marginTop: 4, opacity: 0.8 }}>{rat.label}</div>
-        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 4 }}>
-          <div style={{ width: 40, height: 3, background: "#1e293b", borderRadius: 2, overflow: "hidden" }}><div style={{ width: `${(est.confidence||0.3)*100}%`, height: "100%", background: rat.color, borderRadius: 2 }} /></div>
-          <span style={{ fontSize: 8, color: "#475569" }}>{((est.confidence||0.3)*100).toFixed(0)}% data</span>
-        </div>
-      </div>
-      <div style={{ background: "#0b1120", borderRadius: 12, border: "1px solid #1e293b", padding: "16px 20px" }}>
-        {alt ? (<><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div><div style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.2, textTransform: "uppercase" }}>{alt.isModelled ? "Modelled " : ""}Altman Z'-Score</div>
-          {alt.isModelled && <div style={{ fontSize: 9, color: "#818cf8", marginTop: 1 }}>{alt.realInputCount}/5 inputs filed</div>}</div>
-          <div style={{ padding: "3px 8px", borderRadius: 5, background: zz.bg, border: `1px solid ${zz.border}` }}><span style={{ fontSize: 9, fontWeight: 700, color: zz.color }}>{zz.zone}</span></div>
-        </div><ZBreakdown alt={alt} /></>) : (<>
-          <div style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 10 }}>Clearview Score</div>
-          {cv.signals.filter(s => s.pts !== 0).sort((a,b) => a.pts - b.pts).map((s,i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, padding: "2px 0" }}>
-            <span style={{ color: s.sev === "positive" ? "#6ee7b7" : s.sev === "critical" ? "#fca5a5" : s.sev === "warning" ? "#fdba74" : "#94a3b8" }}>{s.sev === "positive" ? "✓" : "✗"} {s.text}</span>
-            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, color: s.pts > 0 ? "#6ee7b7" : "#f87171" }}>{s.pts > 0 ? "+" : ""}{s.pts}</span>
-          </div>))}
-        </>)}
-      </div>
-    </div>
-
+    <AssessmentPanel assessment={company.assessment} companyName={company.company_name} />
+    <ScoreExplainer />
     <DataBar est={est} accountType={company.accounts?.last_accounts?.type || "unknown"} />
-    <EstPanel est={est} f={f} co={company} />
 
-    {/* Signals */}
-    {alt && (negS.length > 0 || posS.length > 0) && (<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
-      {negS.length > 0 && <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "10px 14px" }}>
-        <div style={{ fontSize: 8, fontWeight: 700, color: "#f87171", letterSpacing: 1, textTransform: "uppercase", marginBottom: 5 }}>Flags</div>
-        {negS.map((s,i) => <div key={i} style={{ fontSize: 10, color: s.sev === "critical" ? "#fca5a5" : s.sev === "warning" ? "#fdba74" : "#93c5fd", padding: "2px 0" }}>{s.sev === "critical" ? "✗" : "●"} {s.text}</div>)}
-      </div>}
-      {posS.length > 0 && <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "10px 14px" }}>
-        <div style={{ fontSize: 8, fontWeight: 700, color: "#6ee7b7", letterSpacing: 1, textTransform: "uppercase", marginBottom: 5 }}>Positive</div>
-        {posS.map((s,i) => <div key={i} style={{ fontSize: 10, color: "#6ee7b7", padding: "2px 0" }}>✓ {s.text}</div>)}
-      </div>}
-    </div>)}
-
-    {/* Financials */}
-    <div style={{ fontSize: 8, fontWeight: 700, color: "#64748b", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 5 }}>Financials · {f.year}</div>
+    <div style={{ fontSize: 8, fontWeight: 700, color: "#64748b", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 5 }}>Filed Financials {"\u00B7"} {f.year}</div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(125px, 1fr))", gap: 5, marginBottom: 18 }}>
-      <Stat label="Turnover" value={fmt(f.turnover ?? est.est_turnover)} source={f.turnover != null ? "filed" : est.est_turnover ? "estimated" : null} sub={f.turnover && prev?.turnover ? `${pf(((f.turnover-prev.turnover)/prev.turnover)*100)} YoY` : f.turnover == null && est.est_turnover_low ? `${fmt(est.est_turnover_low)}–${fmt(est.est_turnover_high)}` : null} />
-      <Stat label="EBIT" value={fmt(f.ebit ?? est.est_ebit)} source={f.ebit != null ? "filed" : est.estimates?.ebit?.source} alert={(f.ebit ?? est.est_ebit) < 0} />
-      <Stat label="Net Profit" value={fmt(f.net_profit ?? est.est_net_profit)} source={f.net_profit != null ? "filed" : "estimated"} alert={(f.net_profit ?? est.est_net_profit) < 0} />
-      <Stat label="Net Assets" value={fmt(f.net_assets)} alert={f.net_assets != null && f.net_assets < 0} sub={prev?.net_assets != null ? `${pf(((f.net_assets-prev.net_assets)/(Math.abs(prev.net_assets)||1))*100)} YoY` : null} />
+      <Stat label="Turnover" value={fmt(f.turnover)} sub={f.turnover && prev?.turnover ? pf(((f.turnover-prev.turnover)/prev.turnover)*100)+" YoY" : null} />
+      <Stat label="Net Assets" value={fmt(f.net_assets)} alert={f.net_assets != null && f.net_assets < 0} sub={prev?.net_assets != null ? pf(((f.net_assets-prev.net_assets)/(Math.abs(prev.net_assets)||1))*100)+" YoY" : null} />
       <Stat label="Cash" value={fmt(f.cash)} />
-      <Stat label="Creditors (<1yr)" value={fmt(f.creditors_due_within_year)} alert={f.cash && f.creditors_due_within_year && f.cash/f.creditors_due_within_year < 0.1} sub={f.cash && f.creditors_due_within_year ? `Cash ${(f.cash/f.creditors_due_within_year*100).toFixed(0)}%` : null} />
-      <Stat label="Employees" value={f.employees || "—"} />
+      <Stat label="Current Assets" value={fmt(f.current_assets)} />
+      <Stat label="Creditors (<1yr)" value={fmt(f.current_liabilities || f.creditors_due_within_year)} />
+      <Stat label="Retained Earnings" value={fmt(f.retained_earnings)} alert={f.retained_earnings != null && f.retained_earnings < 0} />
+      <Stat label="Total Assets" value={fmt(f.total_assets)} />
+      <Stat label="Employees" value={f.employees || "\u2014"} />
     </div>
 
-    {/* Trends */}
-    {company.financials.length > 1 && <><div style={{ fontSize: 8, fontWeight: 700, color: "#64748b", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 5 }}>Trends</div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 5, marginBottom: 18 }}>
-      {[{ l: "Turnover", k: "turnover", c: "#38bdf8" }, { l: "Net Assets", k: "net_assets", c: "#34d399" }, { l: "Cash", k: "cash", c: "#fbbf24" }, { l: "Creditors", k: "creditors_due_within_year", c: "#f87171" }].map(t => (<div key={t.k} style={{ padding: "9px 11px", background: "#0b1120", borderRadius: 7, border: "1px solid #1e293b" }}>
-        <div style={{ fontSize: 9, color: "#64748b", fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>{t.l}</div>
-        <MiniChart data={revFin} dataKey={t.k} color={t.c} />
-      </div>))}
-    </div></>}
+    {company.financials.length > 1 && (<>
+      <div style={{ fontSize: 8, fontWeight: 700, color: "#64748b", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 5 }}>Trends</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 5, marginBottom: 18 }}>
+        {[{ l: "Net Assets", k: "net_assets", c: "#34d399" }, { l: "Cash", k: "cash", c: "#fbbf24" }, { l: "Retained Earnings", k: "retained_earnings", c: "#818cf8" }, { l: "Creditors", k: "creditors_due_within_year", c: "#f87171" }].map(t => (<div key={t.k} style={{ padding: "9px 11px", background: "#0b1120", borderRadius: 7, border: "1px solid #1e293b" }}>
+          <div style={{ fontSize: 9, color: "#64748b", fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>{t.l}</div>
+          <MiniChart data={revFin} dataKey={t.k} color={t.c} />
+        </div>))}
+      </div>
+    </>)}
 
-    {/* Officers & Ownership */}
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
       <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "10px 14px" }}>
         <div style={{ fontSize: 8, fontWeight: 700, color: "#64748b", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>Officers</div>
-        {(company.officers || []).slice(0, 8).map((o, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: i < Math.min(company.officers.length, 8) - 1 ? "1px solid #141d2d" : "none" }}>
+        {(company.officers || []).slice(0, 8).map((o, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: i < Math.min((company.officers||[]).length, 8) - 1 ? "1px solid #141d2d" : "none" }}>
           <div><div style={{ fontSize: 11, color: o.resigned ? "#475569" : "#e2e8f0", fontWeight: 500, textDecoration: o.resigned ? "line-through" : "none" }}>{o.name}</div>
-          <div style={{ fontSize: 9, color: "#475569" }}>{o.role}{o.appointed ? ` · ${o.appointed.slice(0,4)}` : ""}</div></div>
+          <div style={{ fontSize: 9, color: "#475569" }}>{o.role}{o.appointed ? " \u00B7 "+o.appointed.slice(0,4) : ""}</div></div>
           {o.resigned && <span style={{ fontSize: 8, color: "#f87171", fontWeight: 700 }}>LEFT</span>}
         </div>))}
-        {(company.officers || []).length > 8 && <div style={{ fontSize: 9, color: "#475569", marginTop: 4 }}>+{company.officers.length - 8} more</div>}
       </div>
       <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "10px 14px" }}>
         <div style={{ fontSize: 8, fontWeight: 700, color: "#64748b", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>Ownership & Charges</div>
-        {(company.psc || []).map((p, i) => <div key={i} style={{ fontSize: 11, color: "#e2e8f0", padding: "3px 0" }}>{p.name || p.kind}{p.ownership && <span style={{ color: "#475569" }}> · {p.ownership}</span>}</div>)}
+        {(company.psc || []).map((p, i) => <div key={i} style={{ fontSize: 11, color: "#e2e8f0", padding: "3px 0" }}>{p.name || p.kind}{p.ownership && <span style={{ color: "#475569" }}> {"\u00B7"} {p.ownership}</span>}</div>)}
         <div style={{ borderTop: "1px solid #141d2d", marginTop: 6, paddingTop: 6, fontSize: 10, color: "#94a3b8" }}>
-          <span style={{ fontWeight: 700 }}>{company.charges?.outstanding || 0}</span> outstanding charges · {company.charges?.satisfied || 0} satisfied
+          <span style={{ fontWeight: 700 }}>{company.charges?.outstanding || 0}</span> outstanding charges {"\u00B7"} {company.charges?.satisfied || 0} satisfied
         </div>
       </div>
     </div>
 
-    {/* Verdict */}
-    <div style={{ background: "linear-gradient(135deg, #0b1120 0%, #1a1033 100%)", borderRadius: 10, border: "1px solid #2e1065", padding: "16px 20px", marginBottom: 16 }}>
-      <div style={{ fontSize: 8, fontWeight: 700, color: "#a78bfa", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>Verdict</div>
-      <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.7 }}>{verdict(company, alt, cv, rat, est)}</div>
-    </div>
-
     <div style={{ textAlign: "center", fontSize: 9, color: "#1e293b", paddingTop: 12, borderTop: "1px solid #141d2d" }}>
-      Companies House · {company.accounts?.last_accounts?.type} accounts · {company.accounts?.last_accounts?.made_up_to} · Not financial advice · Clearview v0.3
+      Companies House {"\u00B7"} {company.accounts?.last_accounts?.type} accounts {"\u00B7"} {company.accounts?.last_accounts?.made_up_to} {"\u00B7"} Not financial advice {"\u00B7"} Clearview v1.0
     </div>
   </div>);
 }
 
-/* ═══════════════════════════════ APP ═══════════════════════════════ */
+/* ═══════════════════════════ APP ═══════════════════════════ */
 function App() {
   const [q, setQ] = useState(""); const [results, setResults] = useState(null); const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(false); const [loadingCompany, setLoadingCompany] = useState(false);
@@ -456,22 +427,15 @@ function App() {
   const search = async (v) => {
     const query = (v || q).trim(); if (!query) return;
     setLoading(true); setError(null);
-    try {
-      const resp = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-      const data = await resp.json();
-      setResults(data.items || []);
-    } catch (e) { setError(e.message); }
+    try { const resp = await fetch("/api/search?q="+encodeURIComponent(query)); const data = await resp.json(); setResults(data.items || []); }
+    catch (e) { setError(e.message); }
     setLoading(false);
   };
 
   const selectCompany = async (number) => {
     setLoadingCompany(true); setError(null);
-    try {
-      const resp = await fetch(`/api/company/${number}`);
-      if (!resp.ok) throw new Error(`API returned ${resp.status}`);
-      const data = await resp.json();
-      setSelected(data);
-    } catch (e) { setError(e.message); }
+    try { const resp = await fetch("/api/company/"+number); if (!resp.ok) throw new Error("API returned "+resp.status); const data = await resp.json(); setSelected(data); }
+    catch (e) { setError(e.message); }
     setLoadingCompany(false);
   };
 
@@ -484,15 +448,13 @@ function App() {
             <span style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9" }}>Clearview</span>
           </div>
           <h1 style={{ fontSize: 24, fontWeight: 800, color: "#f1f5f9", margin: "0 0 4px", letterSpacing: -0.5 }}>Should you do business with them?</h1>
-          <p style={{ fontSize: 11, color: "#64748b", maxWidth: 520, margin: "0 auto", lineHeight: 1.5 }}>
-            Live credit assessment for any UK company. Search by name or company number.
-          </p>
+          <p style={{ fontSize: 11, color: "#64748b", maxWidth: 520, margin: "0 auto", lineHeight: 1.5 }}>Instant credit assessment for any UK company. Search by name or number.</p>
         </div>
 
         <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
           <input ref={ref} type="text" value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && search()}
             placeholder="Company name or number..." style={{ flex: 1, padding: "11px 14px", fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: "#0b1120", border: "1px solid #1e293b", borderRadius: 10, color: "#f1f5f9" }} />
-          <button onClick={() => search()} disabled={loading} style={{ padding: "11px 20px", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans', sans-serif", background: "linear-gradient(135deg, #0ea5e9, #6366f1)", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", opacity: loading ? 0.6 : 1 }}>{loading ? "···" : "Search"}</button>
+          <button onClick={() => search()} disabled={loading} style={{ padding: "11px 20px", fontSize: 12, fontWeight: 700, background: "linear-gradient(135deg, #0ea5e9, #6366f1)", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", opacity: loading ? 0.6 : 1 }}>{loading ? "\u00B7\u00B7\u00B7" : "Search"}</button>
         </div>
 
         {error && <div style={{ padding: "10px 14px", background: "#450a0a", borderRadius: 8, border: "1px solid #7f1d1d", marginBottom: 16, fontSize: 11, color: "#fca5a5" }}>Error: {error}</div>}
@@ -505,7 +467,7 @@ function App() {
             onMouseEnter={e => e.currentTarget.style.borderColor = "#334155"} onMouseLeave={e => e.currentTarget.style.borderColor = "#1e293b"}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#f1f5f9" }}>{r.company_name}</div>
-              <div style={{ fontSize: 10, color: "#475569", marginTop: 1 }}>{r.company_number} · {(r.type || "").toUpperCase()} · {r.address_snippet || r.locality}</div>
+              <div style={{ fontSize: 10, color: "#475569", marginTop: 1 }}>{r.company_number} {"\u00B7"} {(r.type || "").toUpperCase()} {"\u00B7"} {r.address_snippet || r.locality}</div>
             </div>
             <div style={{ fontSize: 8, fontWeight: 700, padding: "3px 8px", borderRadius: 5, background: r.company_status === "active" ? "#064e3b" : r.company_status === "dissolved" ? "#7f1d1d" : "#451a03", color: r.company_status === "active" ? "#6ee7b7" : r.company_status === "dissolved" ? "#fca5a5" : "#fdba74", textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap" }}>{r.company_status}</div>
           </button>))}

@@ -15,6 +15,7 @@ from flask_cors import CORS
 
 from ch_api import CompaniesHouseClient, build_company_data
 from accounts_parser import extract_financials_from_ixbrl, format_for_frontend
+from clearview_score import assess_company
 
 # ── Config ──
 API_KEY = os.environ.get("CH_API_KEY")
@@ -145,6 +146,13 @@ def company(number):
         data["financials"] = format_for_frontend(
             sorted(unique_financials, key=lambda x: x["year"], reverse=True)[:4]
         )
+
+        # ── Run Clearview Credit Assessment ──
+        sorted_financials = sorted(unique_financials, key=lambda x: x["year"], reverse=True)[:4]
+        assessment = assess_company(data, sorted_financials)
+        data["assessment"] = assessment
+        print(f"[Clearview] Score: {assessment['clearview_score']} "
+              f"({assessment['rating']['grade']} - {assessment['rating']['label']})")
 
         # Remove raw filings data before caching
         data.pop("accounts_filings", None)
