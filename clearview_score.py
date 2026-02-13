@@ -138,12 +138,16 @@ def calc_financial_ratios(fin):
     return ratios
 
 
-def _score_single_year(fin):
-    """Score a single year's financials. Returns (score, ratios_dict) or (None, {})."""
+def score_financial_health(fin):
+    """Score a single year's financials on 0-100 scale.
+
+    Returns: (score, details_dict)
+    """
     ratios = calc_financial_ratios(fin)
+
+    scored = {}
     total_weight = 0
     weighted_sum = 0
-    scored = {}
 
     for name, value in ratios.items():
         s = _score_band(value, RATIO_BANDS[name])
@@ -157,52 +161,12 @@ def _score_single_year(fin):
             total_weight += RATIO_WEIGHTS[name]
 
     if total_weight == 0:
-        return None, scored
-    return round(weighted_sum / total_weight, 1), scored
+        return 50, scored  # No data — neutral
 
+    # Normalise weights to sum to 1
+    financial_health = weighted_sum / total_weight
 
-def score_financial_health(financials):
-    """Score financial health using ALL available years, weighting recent years more.
-
-    financials: list of financial records sorted newest first (up to 4 years)
-    Returns: (score, details_dict)
-
-    Weighting: Year 0 (latest) = 50%, Year 1 = 25%, Year 2 = 15%, Year 3 = 10%
-    This means a company with 3 years of strong ratios scores higher than one
-    with just 1 strong year, and sustained decline is penalised more heavily.
-    """
-    if not financials:
-        return 50, {}
-
-    # Weight recent years more heavily
-    year_weights = [0.50, 0.25, 0.15, 0.10]
-
-    year_scores = []
-    latest_details = {}
-
-    for i, fin in enumerate(financials[:4]):
-        score, details = _score_single_year(fin)
-        if i == 0:
-            latest_details = details  # Show most recent year's breakdown to user
-        if score is not None:
-            w = year_weights[i] if i < len(year_weights) else 0.05
-            year_scores.append((score, w))
-
-    if not year_scores:
-        return 50, latest_details
-
-    # Normalise weights and compute weighted average
-    total_w = sum(w for _, w in year_scores)
-    blended = sum(s * w for s, w in year_scores) / total_w
-
-    # Add year count info to details
-    latest_details["_years_used"] = len(year_scores)
-    latest_details["_year_scores"] = [
-        {"year": financials[i].get("year", "?"), "score": round(s, 1)}
-        for i, (s, _) in enumerate(year_scores)
-    ]
-
-    return round(blended, 1), latest_details
+    return round(financial_health, 1), scored
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -328,39 +292,6 @@ def score_stability(company_data):
         adjustment += 5
         signals.append(("No outstanding charges", +5, "positive"))
 
-    # 2.6 Insolvency History
-    insolvency = company_data.get("insolvency", {})
-    insolvency_cases = insolvency.get("cases", [])
-    if insolvency_cases:
-        # Has insolvency history — very serious
-        case_types = [c.get("type", "") for c in insolvency_cases]
-        active_types = []
-        for c in insolvency_cases:
-            ctype = c.get("type", "unknown").replace("-", " ").replace("_", " ").title()
-            active_types.append(ctype)
-
-        if insolvency.get("has_active_case"):
-            adjustment -= 40
-            signals.append((f"Active insolvency: {active_types[0]}", -40, "high_risk"))
-        else:
-            adjustment -= 20
-            signals.append((f"Past insolvency history ({len(insolvency_cases)} case(s))", -20, "high_risk"))
-    else:
-        signals.append(("No insolvency history", +5, "positive"))
-        adjustment += 5
-
-    # 2.7 Gazette Notices (winding-up petitions etc)
-    gazette = company_data.get("gazette_notices", [])
-    if gazette:
-        adjustment -= 15
-        signals.append((f"{len(gazette)} Gazette insolvency notice(s) found", -15, "high_risk"))
-
-    # 2.8 Company Status
-    status = company_data.get("company_status", "active")
-    if status in ("dissolved", "liquidation", "receivership", "administration"):
-        adjustment -= 50
-        signals.append((f"Company status: {status}", -50, "high_risk"))
-
     score = max(0, min(100, 50 + adjustment))
     return score, signals
 
@@ -379,10 +310,7 @@ def _pct_change(new, old):
 
 
 def score_trends(financials):
-    """Score trends using ALL available years on 0-100 scale.
-
-    Analyses year-on-year changes across the full history.
-    Sustained trends (3+ years in same direction) get amplified.
+    """Score year-on-year trends on 0-100 scale.
 
     financials: list of financial records sorted newest first
     Returns: (score, trends_list)
@@ -393,150 +321,72 @@ def score_trends(financials):
     if len(financials) < 2:
         return 50, [("Insufficient data for trend analysis", 0, "neutral")]
 
-    n_years = len(financials)
-    trends.append((f"Analysed {n_years} years of accounts", 0, "info"))
+    curr = financials[0]
+    prev = financials[1]
 
-    # ── 3.1 Retained Earnings trajectory (profit proxy) ──
-    re_values = [(f.get("year", "?"), f.get("retained_earnings")) for f in financials]
-    re_valid = [(y, v) for y, v in re_values if v is not None]
-
-    if len(re_valid) >= 2:
-        # Calculate year-on-year changes (newest to oldest)
-        re_changes = []
-        for i in range(len(re_valid) - 1):
-            new_v = re_valid[i][1]
-            old_v = re_valid[i + 1][1]
-            ch = _pct_change(new_v, old_v)
-            if ch is not None:
-                re_changes.append(ch)
-
-        if re_changes:
-            # Average annual change
-            avg_re = sum(re_changes) / len(re_changes)
-            # Count direction consistency
-            up_years = sum(1 for c in re_changes if c > 0.02)
-            down_years = sum(1 for c in re_changes if c < -0.02)
-
-            if avg_re > 0.05 and down_years == 0:
-                adjustment += 25
-                label = f"Retained earnings growing consistently ({len(re_changes)} years)"
-                trends.append((label, +25, "positive"))
-            elif avg_re > 0.05:
-                adjustment += 15
-                trends.append(("Retained earnings growing overall", +15, "positive"))
-            elif avg_re >= -0.05:
-                adjustment += 8
-                trends.append(("Retained earnings broadly stable", +8, "neutral"))
-            elif avg_re >= -0.20 or down_years < len(re_changes):
-                adjustment -= 12
-                trends.append(("Retained earnings declining", -12, "risk"))
-            else:
-                adjustment -= 25
-                label = f"Sustained decline in retained earnings ({down_years} consecutive years)"
-                trends.append((label, -25, "high_risk"))
-
-        # Estimated profit from most recent pair
-        curr_re = financials[0].get("retained_earnings")
-        prev_re = financials[1].get("retained_earnings")
-        if curr_re is not None and prev_re is not None:
-            est_profit = curr_re - prev_re
-            trends.append((f"Estimated annual profit/loss: \u00a3{est_profit:,.0f}", 0, "info"))
-
-        # Multi-year profit trajectory if 3+ years
-        if len(re_valid) >= 3:
-            profits = []
-            for i in range(len(re_valid) - 1):
-                p = re_valid[i][1] - re_valid[i + 1][1]
-                profits.append((re_valid[i][0], p))
-            loss_years = sum(1 for _, p in profits if p < 0)
-            if loss_years == 0 and len(profits) >= 2:
-                trends.append((f"Profitable in all {len(profits)} years analysed", 0, "info"))
-            elif loss_years == len(profits):
-                adjustment -= 10
-                trends.append((f"Loss-making in all {len(profits)} years analysed", -10, "high_risk"))
-            elif loss_years > 0:
-                trends.append((f"Loss-making in {loss_years} of {len(profits)} years", 0, "info"))
-
-    # ── 3.2 Net Assets trajectory ──
-    na_values = [(f.get("year", "?"), f.get("net_assets")) for f in financials]
-    na_valid = [(y, v) for y, v in na_values if v is not None]
-
-    if len(na_valid) >= 2:
-        na_changes = []
-        for i in range(len(na_valid) - 1):
-            ch = _pct_change(na_valid[i][1], na_valid[i + 1][1])
-            if ch is not None:
-                na_changes.append(ch)
-
-        if na_changes:
-            avg_na = sum(na_changes) / len(na_changes)
-            down_na = sum(1 for c in na_changes if c < -0.05)
-
-            if avg_na > 0.05 and down_na == 0:
-                adjustment += 15
-                trends.append(("Net assets growing consistently", +15, "positive"))
-            elif avg_na > 0.02:
-                adjustment += 10
-                trends.append(("Net assets growing", +10, "positive"))
-            elif avg_na >= -0.05:
-                adjustment += 5
-                trends.append(("Net assets stable", +5, "neutral"))
-            elif down_na == len(na_changes):
-                adjustment -= 18
-                trends.append((f"Net assets declining every year ({len(na_changes)} years)", -18, "high_risk"))
-            else:
-                adjustment -= 12
-                trends.append(("Net assets declining", -12, "risk"))
-
-    # ── 3.3 Liquidity trend (current ratio) ──
-    cr_values = []
-    for fin in financials:
-        cr = _safe_div(fin.get("current_assets"),
-                       fin.get("current_liabilities") or fin.get("creditors_due_within_year"))
-        cr_values.append(cr)
-
-    cr_valid = [v for v in cr_values if v is not None]
-    if len(cr_valid) >= 2:
-        # Compare newest vs oldest for overall direction
-        overall_delta = cr_valid[0] - cr_valid[-1]
-        # Also check most recent change
-        recent_delta = cr_valid[0] - cr_valid[1]
-
-        if overall_delta > 0.2 and recent_delta > 0:
+    # 3.1 Retained Earnings Change (profit proxy)
+    re_change = _pct_change(curr.get("retained_earnings"), prev.get("retained_earnings"))
+    if re_change is not None:
+        if re_change > 0.05:
+            adjustment += 20
+            trends.append(("Retained earnings growing (profit proxy)", +20, "positive"))
+        elif re_change >= -0.05:
             adjustment += 10
-            trends.append(("Liquidity improving over time", +10, "positive"))
-        elif overall_delta > 0:
+            trends.append(("Retained earnings stable", +10, "neutral"))
+        elif re_change >= -0.20:
+            adjustment -= 10
+            trends.append(("Retained earnings declining", -10, "risk"))
+        else:
+            adjustment -= 20
+            trends.append(("Significant retained earnings decline", -20, "high_risk"))
+
+        # Calculate the estimated profit figure for display
+        if curr.get("retained_earnings") is not None and prev.get("retained_earnings") is not None:
+            est_profit = curr["retained_earnings"] - prev["retained_earnings"]
+            trends.append((f"Estimated annual profit/loss: £{est_profit:,.0f}", 0, "info"))
+
+    # 3.2 Net Assets Trend
+    na_change = _pct_change(curr.get("net_assets"), prev.get("net_assets"))
+    if na_change is not None:
+        if na_change > 0.05:
+            adjustment += 15
+            trends.append(("Net assets growing", +15, "positive"))
+        elif na_change >= -0.05:
             adjustment += 5
-            trends.append(("Liquidity slightly improved", +5, "positive"))
-        elif overall_delta > -0.15:
-            adjustment += 3
-            trends.append(("Liquidity broadly stable", +3, "neutral"))
+            trends.append(("Net assets stable", +5, "neutral"))
+        else:
+            adjustment -= 15
+            trends.append(("Net assets declining", -15, "risk"))
+
+    # 3.3 Current Ratio Trend
+    cr_curr = _safe_div(curr.get("current_assets"),
+                        curr.get("current_liabilities") or curr.get("creditors_due_within_year"))
+    cr_prev = _safe_div(prev.get("current_assets"),
+                        prev.get("current_liabilities") or prev.get("creditors_due_within_year"))
+    if cr_curr is not None and cr_prev is not None:
+        cr_delta = cr_curr - cr_prev
+        if cr_delta > 0.1:
+            adjustment += 10
+            trends.append(("Current ratio improving", +10, "positive"))
+        elif cr_delta >= -0.1:
+            adjustment += 5
+            trends.append(("Current ratio stable", +5, "neutral"))
         else:
             adjustment -= 10
-            trends.append(("Liquidity deteriorating over time", -10, "risk"))
+            trends.append(("Current ratio deteriorating", -10, "risk"))
 
-    # ── 3.4 Cash trend ──
-    cash_values = [(f.get("year", "?"), f.get("cash")) for f in financials]
-    cash_valid = [(y, v) for y, v in cash_values if v is not None]
-
-    if len(cash_valid) >= 2:
-        cash_changes = []
-        for i in range(len(cash_valid) - 1):
-            ch = _pct_change(cash_valid[i][1], cash_valid[i + 1][1])
-            if ch is not None:
-                cash_changes.append(ch)
-
-        if cash_changes:
-            avg_cash = sum(cash_changes) / len(cash_changes)
-            if avg_cash > 0.1:
-                adjustment += 8
-                trends.append(("Cash position improving", +8, "positive"))
-            elif avg_cash >= -0.1:
-                adjustment += 4
-                trends.append(("Cash position stable", +4, "neutral"))
-            else:
-                adjustment -= 8
-                trends.append(("Cash position declining", -8, "risk"))
+    # 3.4 Cash Trend
+    cash_change = _pct_change(curr.get("cash"), prev.get("cash"))
+    if cash_change is not None:
+        if cash_change > 0.1:
+            adjustment += 10
+            trends.append(("Cash position improving", +10, "positive"))
+        elif cash_change >= -0.1:
+            adjustment += 5
+            trends.append(("Cash position stable", +5, "neutral"))
+        else:
+            adjustment -= 10
+            trends.append(("Cash position declining", -10, "risk"))
 
     score = max(0, min(100, 50 + adjustment))
     return score, trends
@@ -626,7 +476,7 @@ def calc_altman_z(fin):
 # ═══════════════════════════════════════════════════════════════════
 
 def calc_confidence(financials, company_data):
-    """Determine confidence level based on data completeness across all years.
+    """Determine confidence level based on data completeness.
 
     Returns: ("high" | "medium" | "low", reason_string)
     """
@@ -635,35 +485,22 @@ def calc_confidence(financials, company_data):
     if n_years == 0:
         return "low", "No financial data available"
 
-    # Count how many key fields are present across years
+    # Count how many key fields are present in most recent year
+    latest = financials[0]
     key_fields = ["total_assets", "current_assets", "current_liabilities",
                   "net_assets", "retained_earnings", "cash"]
-
-    # Check most recent year
-    latest = financials[0]
     available = sum(1 for f in key_fields if latest.get(f) is not None)
     completeness = available / len(key_fields)
-
-    # Check consistency across years (do all years have the same fields?)
-    multi_year_quality = 0
-    if n_years >= 2:
-        for yr in financials[1:]:
-            yr_avail = sum(1 for f in key_fields if yr.get(f) is not None)
-            multi_year_quality += yr_avail / len(key_fields)
-        multi_year_quality /= (n_years - 1)
 
     has_officers = len(company_data.get("officers", [])) > 0
     has_age = company_data.get("date_of_creation") is not None
 
-    if n_years >= 3 and completeness >= 0.8 and multi_year_quality >= 0.6 and has_officers and has_age:
-        return "high", f"{n_years} years data, {available}/{len(key_fields)} fields, consistent history"
+    if n_years >= 3 and completeness >= 0.8 and has_officers and has_age:
+        return "high", f"{n_years} years data, {available}/{len(key_fields)} balance sheet fields"
     elif n_years >= 2 and completeness >= 0.5:
-        return "medium", f"{n_years} years data, {available}/{len(key_fields)} fields"
+        return "medium", f"{n_years} years data, {available}/{len(key_fields)} balance sheet fields"
     else:
-        reason = f"{n_years} year(s) data, {available}/{len(key_fields)} fields"
-        if n_years < 2:
-            reason += " (no trend data)"
-        return "low", reason
+        return "low", f"{n_years} year(s) data, {available}/{len(key_fields)} balance sheet fields"
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -694,109 +531,6 @@ def get_rating(score):
     return {"grade": "F", "label": "Critical", "description": "Very high risk. May be insolvent."}
 
 
-def calc_credit_limit(score, financials, company_data):
-    """Calculate a suggested credit limit based on score and financials.
-
-    Uses a conservative approach:
-    - Base limit derived from net assets (capped at percentage)
-    - Adjusted by Clearview score (higher score = higher multiplier)
-    - Capped at reasonable maximums for small company context
-    - Zero if score is very low or company has insolvency history
-
-    Returns: dict with limit, basis, and confidence
-    """
-    # No limit for very poor companies or active insolvency
-    insolvency = company_data.get("insolvency", {})
-    if score < 20 or insolvency.get("has_active_case"):
-        return {"limit": 0, "basis": "Not recommended — high risk or active insolvency", "confidence": "low"}
-
-    if not financials:
-        return {"limit": 500, "basis": "Minimal data available — conservative limit", "confidence": "low"}
-
-    f = financials[0]
-    net_assets = f.get("net_assets")
-    total_assets = f.get("total_assets")
-    cash = f.get("cash")
-    current_assets = f.get("current_assets")
-
-    # Start with net assets as the base
-    if net_assets is not None and net_assets > 0:
-        # Allow credit up to a % of net assets depending on score
-        if score >= 80:
-            base = net_assets * 0.10  # 10% of net assets
-        elif score >= 65:
-            base = net_assets * 0.07
-        elif score >= 50:
-            base = net_assets * 0.05
-        elif score >= 35:
-            base = net_assets * 0.03
-        else:
-            base = net_assets * 0.02
-        basis = "Based on net assets"
-    elif total_assets is not None and total_assets > 0:
-        # Fall back to total assets at lower percentages
-        if score >= 65:
-            base = total_assets * 0.03
-        elif score >= 50:
-            base = total_assets * 0.02
-        else:
-            base = total_assets * 0.01
-        basis = "Based on total assets (net assets not available)"
-    elif cash is not None and cash > 0:
-        base = cash * 0.15
-        basis = "Based on cash position"
-    else:
-        # Very limited data
-        if score >= 65:
-            base = 2000
-        elif score >= 50:
-            base = 1000
-        else:
-            base = 500
-        basis = "Limited financial data — conservative estimate"
-
-    # Apply score multiplier
-    if score >= 80:
-        multiplier = 1.5
-    elif score >= 65:
-        multiplier = 1.2
-    elif score >= 50:
-        multiplier = 1.0
-    elif score >= 35:
-        multiplier = 0.7
-    else:
-        multiplier = 0.4
-
-    limit = base * multiplier
-
-    # Past insolvency = halve it
-    if insolvency.get("cases"):
-        limit *= 0.5
-        basis += " (reduced — past insolvency)"
-
-    # Cap at reasonable maximums
-    limit = max(250, min(limit, 500000))
-
-    # Round to nice numbers
-    if limit < 1000:
-        limit = round(limit / 50) * 50  # Round to nearest 50
-    elif limit < 10000:
-        limit = round(limit / 250) * 250  # Round to nearest 250
-    elif limit < 100000:
-        limit = round(limit / 1000) * 1000  # Round to nearest 1000
-    else:
-        limit = round(limit / 5000) * 5000  # Round to nearest 5000
-
-    # Confidence
-    conf = "medium"
-    if net_assets is not None and len(financials) >= 2 and score >= 50:
-        conf = "high"
-    elif net_assets is None or len(financials) < 2:
-        conf = "low"
-
-    return {"limit": int(limit), "basis": basis, "confidence": conf}
-
-
 def assess_company(company_data, financials):
     """Run the full Clearview assessment.
 
@@ -805,9 +539,9 @@ def assess_company(company_data, financials):
 
     Returns: dict with full assessment results
     """
-    # ── Pillar 1: Financial Health (multi-year weighted) ──
+    # ── Pillar 1: Financial Health ──
     if financials:
-        fh_score, fh_details = score_financial_health(financials)
+        fh_score, fh_details = score_financial_health(financials[0])
     else:
         fh_score, fh_details = 50, {}
 
@@ -837,13 +571,6 @@ def assess_company(company_data, financials):
         z, zone, comps = calc_altman_z(financials[0])
         altman = {"z_score": z, "zone": zone, "components": comps}
 
-    # ── Credit Limit ──
-    credit_limit = calc_credit_limit(composite, financials, company_data)
-
-    # ── Insolvency Summary ──
-    insolvency = company_data.get("insolvency", {})
-    gazette = company_data.get("gazette_notices", [])
-
     return {
         "clearview_score": composite,
         "rating": rating,
@@ -867,10 +594,4 @@ def assess_company(company_data, financials):
             },
         },
         "altman_z": altman,
-        "credit_limit": credit_limit,
-        "insolvency": {
-            "cases": len(insolvency.get("cases", [])),
-            "active": insolvency.get("has_active_case", False),
-            "gazette_notices": len(gazette),
-        },
     }

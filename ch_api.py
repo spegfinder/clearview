@@ -94,25 +94,25 @@ class CompaniesHouseClient:
     def get_document_content(self, document_metadata_url):
         """Download iXBRL/XHTML document content.
 
-        Filing history gives URLs on document-api.company-information.service.gov.uk
-        but metadata must be fetched from frontend-doc-api.company-information.service.gov.uk
+        Flow:
+        1. GET metadata from frontend-doc-api → get available formats + content URL
+        2. GET content URL with Accept header → 302 redirect to S3
+        3. Follow redirect → download actual file
         """
-        # Rewrite the URL to use the correct domain for metadata
+        # Build the metadata URL
         meta_url = document_metadata_url
-        meta_url = meta_url.replace(
-            "https://document-api.company-information.service.gov.uk",
-            "https://frontend-doc-api.company-information.service.gov.uk"
-        )
         if meta_url.startswith("/"):
-            meta_url = f"https://frontend-doc-api.company-information.service.gov.uk{meta_url}"
+            meta_url = f"{FRONTEND_DOC_API}{meta_url}"
+        elif not meta_url.startswith("http"):
+            meta_url = f"{FRONTEND_DOC_API}/document/{meta_url}"
 
-        print(f"    [doc] Fetching metadata: {meta_url[:90]}...")
+        print(f"    [doc] Fetching metadata: {meta_url[:80]}...")
         self._rate_limit()
 
         try:
-            resp = self._doc_session.get(meta_url, headers={"Accept": "application/json"}, timeout=15)
-            print(f"    [doc] Metadata response: HTTP {resp.status_code}")
+            resp = self._doc_session.get(meta_url, headers={"Accept": "application/json"})
             if resp.status_code != 200:
+                print(f"    [doc] Metadata failed: HTTP {resp.status_code}")
                 return None, None
             meta = resp.json()
         except Exception as e:
@@ -123,14 +123,20 @@ class CompaniesHouseClient:
         print(f"    [doc] Available formats: {list(resources.keys())}")
 
         # Check if iXBRL is available
-        if "application/xhtml+xml" not in resources:
-            print(f"    [doc] No iXBRL available (PDF only)")
+        has_ixbrl = "application/xhtml+xml" in resources
+        if not has_ixbrl:
+            print(f"    [doc] No iXBRL format available (PDF only?)")
             return None, None
 
-        # Content URL: use the self link + /content
-        content_url = meta.get("links", {}).get("self", meta_url)
-        if not content_url.startswith("http"):
-            content_url = f"https://frontend-doc-api.company-information.service.gov.uk{content_url}"
+        # Get the content URL
+        content_url = meta.get("links", {}).get("document", "")
+        if not content_url:
+            print(f"    [doc] No document link in metadata")
+            return None, None
+
+        # Ensure it's a full URL with /content appended
+        if content_url.startswith("/"):
+            content_url = f"{DOC_API}{content_url}"
         if not content_url.endswith("/content"):
             content_url = content_url.rstrip("/") + "/content"
 
