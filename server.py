@@ -163,7 +163,9 @@ def company(number):
         assessment = assess_company(data, sorted_financials)
         data["assessment"] = assessment
         print(f"[Clearview] Score: {assessment['clearview_score']} "
-              f"({assessment['rating']['grade']} - {assessment['rating']['label']})")
+              f"({assessment['rating']['grade']} - {assessment['rating']['label']}) "
+              f"| Credit limit: £{assessment.get('credit_limit', {}).get('limit', '?')} "
+              f"| Insolvency cases: {assessment.get('insolvency', {}).get('cases', 0)}")
 
         # Remove raw filings data before caching
         data.pop("accounts_filings", None)
