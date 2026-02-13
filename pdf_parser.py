@@ -3,15 +3,20 @@
 Companies that file PDF accounts (mostly PLCs and larger companies) can't be
 parsed with iXBRL tag extraction. Instead we send the PDF to Claude Haiku
 which reads the document and extracts structured financial data.
+
+For large annual reports (100+ pages), we trim to the financial statements
+section before sending, since financials are typically in the latter portion.
 """
 
 import os
+import io
 import json
 import base64
 import requests
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 MODEL = "claude-haiku-4-5-20251001"
+MAX_PDF_PAGES = 90  # Stay under API's 100-page limit
 
 EXTRACTION_PROMPT = """You are a financial data extraction tool. Extract the following financial fields from this UK company accounts document. Return ONLY a JSON array (no other text, no markdown, no explanation).
 
@@ -56,6 +61,93 @@ Rules:
 Return ONLY the JSON array. No commentary."""
 
 
+def _trim_pdf_to_financials(pdf_bytes):
+    """Trim a large PDF to just the pages likely containing financial statements.
+
+    Strategy:
+    1. Search all pages for financial keywords (balance sheet, profit/loss, etc.)
+    2. If found, extract a window around those pages
+    3. If not found, take the last N pages (financials are at the back of annual reports)
+
+    Returns: trimmed PDF bytes
+    """
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ImportError:
+        print("[PDF Parser] pypdf not available — sending full PDF")
+        return pdf_bytes
+
+    try:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        total_pages = len(reader.pages)
+
+        if total_pages <= MAX_PDF_PAGES:
+            return pdf_bytes  # No trimming needed
+
+        print(f"[PDF Parser] PDF has {total_pages} pages — trimming to find financials...")
+
+        # Search for pages containing financial statement keywords
+        financial_keywords = [
+            "balance sheet", "statement of financial position",
+            "profit and loss", "income statement", "statement of comprehensive income",
+            "cash flow", "statement of cash flows",
+            "total assets", "net assets", "shareholders' funds",
+            "retained earnings", "called up share capital",
+        ]
+
+        financial_pages = set()
+        for i, page in enumerate(reader.pages):
+            try:
+                text = (page.extract_text() or "").lower()
+                for kw in financial_keywords:
+                    if kw in text:
+                        financial_pages.add(i)
+                        break
+            except Exception:
+                continue
+
+        if financial_pages:
+            # Found financial pages — take a window around them
+            min_page = max(0, min(financial_pages) - 2)
+            max_page = min(total_pages - 1, max(financial_pages) + 5)
+            # Ensure we don't exceed the limit
+            if max_page - min_page + 1 > MAX_PDF_PAGES:
+                max_page = min_page + MAX_PDF_PAGES - 1
+            page_range = range(min_page, max_page + 1)
+            print(f"[PDF Parser] Found financial content on {len(financial_pages)} pages, extracting pages {min_page+1}-{max_page+1}")
+        else:
+            # No keywords found — take the last N pages (financials are at the back)
+            start = max(0, total_pages - MAX_PDF_PAGES)
+            page_range = range(start, total_pages)
+            print(f"[PDF Parser] No keywords found, taking last {len(page_range)} pages")
+
+        writer = PdfWriter()
+        for i in page_range:
+            writer.add_page(reader.pages[i])
+
+        output = io.BytesIO()
+        writer.write(output)
+        trimmed = output.getvalue()
+        print(f"[PDF Parser] Trimmed from {len(pdf_bytes)} to {len(trimmed)} bytes ({len(page_range)} pages)")
+        return trimmed
+
+    except Exception as e:
+        print(f"[PDF Parser] Trim failed ({e}), trying last {MAX_PDF_PAGES} pages...")
+        # Last resort: brute force last N pages
+        try:
+            from pypdf import PdfReader, PdfWriter
+            reader = PdfReader(io.BytesIO(pdf_bytes))
+            writer = PdfWriter()
+            start = max(0, len(reader.pages) - MAX_PDF_PAGES)
+            for i in range(start, len(reader.pages)):
+                writer.add_page(reader.pages[i])
+            output = io.BytesIO()
+            writer.write(output)
+            return output.getvalue()
+        except Exception:
+            return pdf_bytes
+
+
 def extract_financials_from_pdf(pdf_bytes):
     """Send a PDF to Claude API and extract structured financial data.
 
@@ -70,13 +162,16 @@ def extract_financials_from_pdf(pdf_bytes):
         print("[PDF Parser] No ANTHROPIC_API_KEY set — skipping PDF parsing")
         return []
 
+    # Trim large PDFs to financial pages only
+    pdf_bytes = _trim_pdf_to_financials(pdf_bytes)
+
     # Encode PDF as base64
     pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
     # Check size — Claude supports up to ~32MB base64
     size_mb = len(pdf_b64) / (1024 * 1024)
     if size_mb > 30:
-        print(f"[PDF Parser] PDF too large ({size_mb:.1f}MB), skipping")
+        print(f"[PDF Parser] PDF too large ({size_mb:.1f}MB) even after trimming, skipping")
         return []
 
     print(f"[PDF Parser] Sending {size_mb:.1f}MB PDF to Claude {MODEL}...")
@@ -112,7 +207,7 @@ def extract_financials_from_pdf(pdf_bytes):
                     }
                 ],
             },
-            timeout=60,
+            timeout=90,
         )
 
         if resp.status_code != 200:
@@ -192,7 +287,7 @@ def extract_financials_from_pdf(pdf_bytes):
         return valid
 
     except requests.exceptions.Timeout:
-        print("[PDF Parser] API request timed out (60s)")
+        print("[PDF Parser] API request timed out (90s)")
         return []
     except json.JSONDecodeError as e:
         print(f"[PDF Parser] Failed to parse JSON response: {e}")
