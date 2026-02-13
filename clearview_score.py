@@ -328,6 +328,39 @@ def score_stability(company_data):
         adjustment += 5
         signals.append(("No outstanding charges", +5, "positive"))
 
+    # 2.6 Insolvency History
+    insolvency = company_data.get("insolvency", {})
+    insolvency_cases = insolvency.get("cases", [])
+    if insolvency_cases:
+        # Has insolvency history — very serious
+        case_types = [c.get("type", "") for c in insolvency_cases]
+        active_types = []
+        for c in insolvency_cases:
+            ctype = c.get("type", "unknown").replace("-", " ").replace("_", " ").title()
+            active_types.append(ctype)
+
+        if insolvency.get("has_active_case"):
+            adjustment -= 40
+            signals.append((f"Active insolvency: {active_types[0]}", -40, "high_risk"))
+        else:
+            adjustment -= 20
+            signals.append((f"Past insolvency history ({len(insolvency_cases)} case(s))", -20, "high_risk"))
+    else:
+        signals.append(("No insolvency history", +5, "positive"))
+        adjustment += 5
+
+    # 2.7 Gazette Notices (winding-up petitions etc)
+    gazette = company_data.get("gazette_notices", [])
+    if gazette:
+        adjustment -= 15
+        signals.append((f"{len(gazette)} Gazette insolvency notice(s) found", -15, "high_risk"))
+
+    # 2.8 Company Status
+    status = company_data.get("company_status", "active")
+    if status in ("dissolved", "liquidation", "receivership", "administration"):
+        adjustment -= 50
+        signals.append((f"Company status: {status}", -50, "high_risk"))
+
     score = max(0, min(100, 50 + adjustment))
     return score, signals
 
@@ -661,6 +694,109 @@ def get_rating(score):
     return {"grade": "F", "label": "Critical", "description": "Very high risk. May be insolvent."}
 
 
+def calc_credit_limit(score, financials, company_data):
+    """Calculate a suggested credit limit based on score and financials.
+
+    Uses a conservative approach:
+    - Base limit derived from net assets (capped at percentage)
+    - Adjusted by Clearview score (higher score = higher multiplier)
+    - Capped at reasonable maximums for small company context
+    - Zero if score is very low or company has insolvency history
+
+    Returns: dict with limit, basis, and confidence
+    """
+    # No limit for very poor companies or active insolvency
+    insolvency = company_data.get("insolvency", {})
+    if score < 20 or insolvency.get("has_active_case"):
+        return {"limit": 0, "basis": "Not recommended — high risk or active insolvency", "confidence": "low"}
+
+    if not financials:
+        return {"limit": 500, "basis": "Minimal data available — conservative limit", "confidence": "low"}
+
+    f = financials[0]
+    net_assets = f.get("net_assets")
+    total_assets = f.get("total_assets")
+    cash = f.get("cash")
+    current_assets = f.get("current_assets")
+
+    # Start with net assets as the base
+    if net_assets is not None and net_assets > 0:
+        # Allow credit up to a % of net assets depending on score
+        if score >= 80:
+            base = net_assets * 0.10  # 10% of net assets
+        elif score >= 65:
+            base = net_assets * 0.07
+        elif score >= 50:
+            base = net_assets * 0.05
+        elif score >= 35:
+            base = net_assets * 0.03
+        else:
+            base = net_assets * 0.02
+        basis = "Based on net assets"
+    elif total_assets is not None and total_assets > 0:
+        # Fall back to total assets at lower percentages
+        if score >= 65:
+            base = total_assets * 0.03
+        elif score >= 50:
+            base = total_assets * 0.02
+        else:
+            base = total_assets * 0.01
+        basis = "Based on total assets (net assets not available)"
+    elif cash is not None and cash > 0:
+        base = cash * 0.15
+        basis = "Based on cash position"
+    else:
+        # Very limited data
+        if score >= 65:
+            base = 2000
+        elif score >= 50:
+            base = 1000
+        else:
+            base = 500
+        basis = "Limited financial data — conservative estimate"
+
+    # Apply score multiplier
+    if score >= 80:
+        multiplier = 1.5
+    elif score >= 65:
+        multiplier = 1.2
+    elif score >= 50:
+        multiplier = 1.0
+    elif score >= 35:
+        multiplier = 0.7
+    else:
+        multiplier = 0.4
+
+    limit = base * multiplier
+
+    # Past insolvency = halve it
+    if insolvency.get("cases"):
+        limit *= 0.5
+        basis += " (reduced — past insolvency)"
+
+    # Cap at reasonable maximums
+    limit = max(250, min(limit, 500000))
+
+    # Round to nice numbers
+    if limit < 1000:
+        limit = round(limit / 50) * 50  # Round to nearest 50
+    elif limit < 10000:
+        limit = round(limit / 250) * 250  # Round to nearest 250
+    elif limit < 100000:
+        limit = round(limit / 1000) * 1000  # Round to nearest 1000
+    else:
+        limit = round(limit / 5000) * 5000  # Round to nearest 5000
+
+    # Confidence
+    conf = "medium"
+    if net_assets is not None and len(financials) >= 2 and score >= 50:
+        conf = "high"
+    elif net_assets is None or len(financials) < 2:
+        conf = "low"
+
+    return {"limit": int(limit), "basis": basis, "confidence": conf}
+
+
 def assess_company(company_data, financials):
     """Run the full Clearview assessment.
 
@@ -701,6 +837,13 @@ def assess_company(company_data, financials):
         z, zone, comps = calc_altman_z(financials[0])
         altman = {"z_score": z, "zone": zone, "components": comps}
 
+    # ── Credit Limit ──
+    credit_limit = calc_credit_limit(composite, financials, company_data)
+
+    # ── Insolvency Summary ──
+    insolvency = company_data.get("insolvency", {})
+    gazette = company_data.get("gazette_notices", [])
+
     return {
         "clearview_score": composite,
         "rating": rating,
@@ -724,4 +867,10 @@ def assess_company(company_data, financials):
             },
         },
         "altman_z": altman,
+        "credit_limit": credit_limit,
+        "insolvency": {
+            "cases": len(insolvency.get("cases", [])),
+            "active": insolvency.get("has_active_case", False),
+            "gazette_notices": len(gazette),
+        },
     }
