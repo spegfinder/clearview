@@ -285,7 +285,7 @@ function AssessmentDetails({ assessment, companyName, onHelp }) {
 }
 
 /* EXPOSURE RISK ENGINE — pure function, no UI */
-function calcExposureRisk(val, assessment, financials) {
+function calcExposureRisk(val, assessment, financials, distressPrediction) {
   if (!assessment) return null;
   const f = financials?.[0] || {};
   const score = assessment.clearview_score || 50;
@@ -307,6 +307,11 @@ function calcExposureRisk(val, assessment, financials) {
   if (cash != null && cash > 0) { cashRatio = (val / cash) * 100; ratios.push({ label: "of cash", value: cashRatio, fmt: cashRatio.toFixed(1) + "%" }); }
   if (ca != null && ca > 0) { caRatio = (val / ca) * 100; ratios.push({ label: "of current assets", value: caRatio, fmt: caRatio.toFixed(1) + "%" }); }
   if (turnover != null && turnover > 0) { turnRatio = (val / turnover) * 100; ratios.push({ label: "of turnover", value: turnRatio, fmt: turnRatio.toFixed(1) + "%" }); }
+
+  // Add distress probability as a ratio chip if available
+  if (distressPrediction && distressPrediction.probability_pct != null) {
+    ratios.push({ label: "distress probability", value: distressPrediction.probability_pct, fmt: distressPrediction.probability_pct + "%" });
+  }
 
   if (naRatio != null) {
     if (naRatio <= 1) { reasons.push("\u00A3" + val.toLocaleString() + " is tiny relative to their net assets (" + naRatio.toFixed(1) + "%) \u2014 very low exposure"); }
@@ -340,6 +345,22 @@ function calcExposureRisk(val, assessment, financials) {
   else if (score >= 75) { reasons.push("Strong credit score (" + Math.round(score) + "/100)"); }
 
   if (insolvency.cases > 0) { if (riskLevel === "low") riskLevel = "medium"; else if (riskLevel === "medium") riskLevel = "high"; reasons.push("Past insolvency history"); }
+
+  // Distress prediction modifier
+  if (distressPrediction && distressPrediction.probability_pct != null) {
+    const dp = distressPrediction.probability_pct;
+    if (dp >= 20) {
+      if (riskLevel === "low") riskLevel = "high";
+      else if (riskLevel === "medium") riskLevel = "very_high";
+      reasons.push("Distress probability " + dp + "% \u2014 elevated failure risk");
+    } else if (dp >= 10) {
+      if (riskLevel === "low") riskLevel = "medium";
+      else if (riskLevel === "medium") riskLevel = "high";
+      reasons.push("Distress probability " + dp + "% \u2014 above average failure risk");
+    } else if (dp < 3) {
+      reasons.push("Low distress probability (" + dp + "%) \u2014 statistically stable");
+    }
+  }
 
   if (naRatio == null && cashRatio == null && caRatio == null && turnRatio == null) {
     reasons.push("Limited financial data \u2014 cannot assess exposure relative to company size");
@@ -508,7 +529,7 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
   const runExposure = () => {
     const val = parseFloat(exposureAmt.replace(/[\u00A3,\s]/g, ""));
     if (!val || val <= 0) return;
-    setExposureResult(calcExposureRisk(val, company.assessment, company.financials));
+    setExposureResult(calcExposureRisk(val, company.assessment, company.financials, company.distress_prediction));
   };
 
   const searchCompare = async () => {
@@ -612,6 +633,79 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
         </div>
       </div>
     )}
+
+    {/* Distress Prediction */}
+    {company.distress_prediction && (() => {
+      const dp = company.distress_prediction;
+      const pct = dp.probability_pct;
+      const band = dp.risk_band;
+      const bandColors = {
+        very_low: { bg: "#052e16", border: "#065f46", text: "#6ee7b7", bar: "#10b981", label: "Very Low" },
+        low: { bg: "#052e16", border: "#065f46", text: "#6ee7b7", bar: "#34d399", label: "Low" },
+        moderate: { bg: "#1c1507", border: "#854d0e", text: "#fde68a", bar: "#f59e0b", label: "Moderate" },
+        elevated: { bg: "#1a0f00", border: "#9a3412", text: "#fdba74", bar: "#f97316", label: "Elevated" },
+        high: { bg: "#1a0505", border: "#991b1b", text: "#fca5a5", bar: "#ef4444", label: "High" },
+        very_high: { bg: "#1a0505", border: "#7f1d1d", text: "#fca5a5", bar: "#dc2626", label: "Very High" },
+      };
+      const bc = bandColors[band] || bandColors.moderate;
+      const riskFactors = dp.factors.filter(f => f[1] === "increases_risk" || f[1] === "major_risk" || f[1] === "critical");
+      const positiveFactors = dp.factors.filter(f => f[1] === "reduces_risk");
+
+      return (
+        <div style={{ background: bc.bg, borderRadius: 10, border: "1px solid " + bc.border, padding: "16px 20px", marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 8, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
+                Distress Probability {"\u00B7"} Next 24 Months
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <span style={{ fontSize: 32, fontWeight: 800, color: bc.text, fontFamily: "'JetBrains Mono', monospace" }}>
+                  {pct}%
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: bc.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  {bc.label} Risk
+                </span>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 5, height: 5, borderRadius: "50%", background: dp.confidence === "high" ? "#10b981" : dp.confidence === "medium" ? "#f59e0b" : "#ef4444" }} />
+              <span style={{ fontSize: 8, color: "#475569" }}>{dp.confidence === "high" ? "High" : dp.confidence === "medium" ? "Medium" : "Low"} confidence</span>
+            </div>
+          </div>
+
+          {/* Probability bar */}
+          <div style={{ background: "#0b1120", borderRadius: 4, height: 6, marginBottom: 12, overflow: "hidden" }}>
+            <div style={{ width: Math.min(pct, 100) + "%", height: "100%", background: bc.bar, borderRadius: 4, transition: "width 0.6s ease" }} />
+          </div>
+
+          {/* Factors */}
+          {(riskFactors.length > 0 || positiveFactors.length > 0) && (
+            <div style={{ display: "grid", gridTemplateColumns: riskFactors.length > 0 && positiveFactors.length > 0 ? "1fr 1fr" : "1fr", gap: 8 }}>
+              {riskFactors.length > 0 && (
+                <div>
+                  {riskFactors.map((f, i) => (
+                    <div key={i} style={{ fontSize: 10, color: f[1] === "major_risk" || f[1] === "critical" ? "#fca5a5" : "#fdba74", padding: "1px 0" }}>
+                      {f[1] === "major_risk" || f[1] === "critical" ? "\u25B2" : "\u25CF"} {f[0]}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {positiveFactors.length > 0 && (
+                <div>
+                  {positiveFactors.map((f, i) => (
+                    <div key={i} style={{ fontSize: 10, color: "#6ee7b7", padding: "1px 0" }}>{"\u25BC"} {f[0]}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div style={{ fontSize: 8, color: "#475569", marginTop: 8 }}>
+            {dp.confidence === "high" ? "Based on financial data and company profile" : dp.confidence === "medium" ? "Based on company profile and limited financial data" : "Based on company profile only — treat as indicative"}
+          </div>
+        </div>
+      );
+    })()}
 
     {/* Action buttons */}
     <div className="no-print" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>

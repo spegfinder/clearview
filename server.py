@@ -16,6 +16,7 @@ from flask_cors import CORS
 from ch_api import CompaniesHouseClient, build_company_data
 from accounts_parser import extract_financials_from_ixbrl, format_for_frontend
 from pdf_parser import extract_financials_from_pdf
+from distress_predictor import predict_distress
 from clearview_score import assess_company
 
 # ── Config ──
@@ -194,6 +195,16 @@ def company(number):
             print(f"[Clearview] Assessment FAILED: {ae}")
             traceback.print_exc()
             data["assessment"] = None
+
+        # ── Run Distress Prediction ──
+        try:
+            prediction = predict_distress(data, sorted_financials)
+            data["distress_prediction"] = prediction
+            if prediction:
+                print(f"[Clearview] Distress probability: {prediction['probability_pct']}% ({prediction['risk_band']})")
+        except Exception as pe:
+            print(f"[Clearview] Prediction failed: {pe}")
+            data["distress_prediction"] = None
 
         # Remove raw filings data before caching
         data.pop("accounts_filings", None)
