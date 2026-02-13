@@ -230,28 +230,34 @@ def predict_distress(company_data, financials=None):
 
         # Negative net assets — strong failure signal
         if na is not None and na < 0:
-            prob *= 3.0
+            mult = adjustments.get("net_assets_negative", 3.0)
+            prob *= mult
             factors.append(("Negative net assets", "major_risk"))
 
         # Current ratio
         if ca is not None and cl is not None and cl > 0:
             current_ratio = ca / cl
             if current_ratio < 0.5:
-                prob *= 2.5
+                mult = adjustments.get("current_ratio_0.3", 2.5)
+                prob *= mult
                 factors.append(("Current ratio below 0.5 — severe liquidity risk", "major_risk"))
             elif current_ratio < 0.8:
-                prob *= 1.8
+                mult = adjustments.get("current_ratio_0.5", 1.8)
+                prob *= mult
                 factors.append(("Current ratio below 0.8 — liquidity concern", "increases_risk"))
             elif current_ratio < 1.0:
-                prob *= 1.3
+                mult = adjustments.get("current_ratio_0.8", 1.3)
+                prob *= mult
                 factors.append(("Current ratio below 1.0", "slight_risk"))
             elif current_ratio > 2.0:
-                prob *= 0.7
+                mult = adjustments.get("current_ratio_2.5", 0.7)
+                prob *= mult
                 factors.append(("Strong current ratio", "reduces_risk"))
 
         # Negative retained earnings
         if re is not None and re < 0:
-            prob *= 1.6
+            mult = adjustments.get("retained_negative", 1.6)
+            prob *= mult
             factors.append(("Accumulated losses (negative retained earnings)", "increases_risk"))
 
         # Low cash
