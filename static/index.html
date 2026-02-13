@@ -500,7 +500,7 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
   const addr = company.registered_office_address || {};
   const addrStr = [addr.address_line_1, addr.address_line_2, addr.locality, addr.region, addr.postal_code].filter(Boolean).join(", ");
   const revFin = [...company.financials].reverse();
-  const methodLabel = est.method === "full" ? "Full P&L" : est.method === "partial_pl" ? "Partial P&L" : est.method === "turnover_only" ? "Turnover only" : est.method === "sic_employee_model" ? "SIC estimated" : "Balance sheet only";
+  const methodLabel = company.pdf_parsed ? "AI-parsed PDF" : est.method === "full" ? "Full P&L" : est.method === "partial_pl" ? "Partial P&L" : est.method === "turnover_only" ? "Turnover only" : est.method === "sic_employee_model" ? "SIC estimated" : "Balance sheet only";
 
   const shareUrl = window.location.origin + "/report/" + company.company_number;
   const copyLink = () => { navigator.clipboard.writeText(shareUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }); };

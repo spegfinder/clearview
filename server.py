@@ -15,6 +15,7 @@ from flask_cors import CORS
 
 from ch_api import CompaniesHouseClient, build_company_data
 from accounts_parser import extract_financials_from_ixbrl, format_for_frontend
+from pdf_parser import extract_financials_from_pdf
 from clearview_score import assess_company
 
 # ── Config ──
@@ -111,6 +112,7 @@ def company(number):
 
         # ── Attempt to parse financials from iXBRL filings ──
         financials = []
+        pdf_filings = []  # Save PDF filings for fallback
         filings = data.get("accounts_filings", [])
 
         print(f"[Clearview] Found {len(filings)} accounts filings, attempting iXBRL parse...")
@@ -122,20 +124,41 @@ def company(number):
 
             try:
                 content, content_type = client.get_document_content(doc_meta_link)
-                if content and "html" in (content_type or "").lower() or "xml" in (content_type or "").lower():
+                if content and content_type and ("html" in content_type.lower() or "xml" in content_type.lower()):
                     parsed = extract_financials_from_ixbrl(content)
                     if parsed:
                         financials.extend(parsed)
-                        print(f"  ✓ Parsed {len(parsed)} period(s) from {filing.get('date', 'unknown')}")
+                        print(f"  \u2713 Parsed {len(parsed)} period(s) from iXBRL {filing.get('date', 'unknown')}")
                     else:
-                        print(f"  ✗ No financial data extracted from {filing.get('date', 'unknown')}")
+                        print(f"  \u2717 No financial data extracted from iXBRL {filing.get('date', 'unknown')}")
+                elif content and content_type and "pdf" in content_type.lower():
+                    # Save PDF for later — try iXBRL first
+                    pdf_filings.append((filing, content))
+                    print(f"  \u2298 PDF found for {filing.get('date', 'unknown')} — saved for AI parsing")
                 elif content:
-                    print(f"  ⊘ Document is {content_type}, skipping (PDF/image)")
+                    print(f"  \u2298 Document is {content_type}, skipping")
                 else:
-                    print(f"  ✗ Could not download document for {filing.get('date', 'unknown')}")
+                    print(f"  \u2717 Could not download document for {filing.get('date', 'unknown')}")
             except Exception as e:
-                print(f"  ✗ Error parsing {filing.get('date', 'unknown')}: {e}")
+                print(f"  \u2717 Error parsing {filing.get('date', 'unknown')}: {e}")
                 continue
+
+        # ── PDF fallback: if iXBRL got nothing, try parsing PDFs with Claude ──
+        if not financials and pdf_filings:
+            print(f"[Clearview] No iXBRL data — trying AI-powered PDF parsing on {len(pdf_filings[:2])} filing(s)...")
+            for filing, pdf_bytes in pdf_filings[:2]:  # Limit to 2 PDFs
+                try:
+                    parsed = extract_financials_from_pdf(pdf_bytes)
+                    if parsed:
+                        financials.extend(parsed)
+                        data["pdf_parsed"] = True
+                        print(f"  \u2713 AI parsed {len(parsed)} period(s) from PDF {filing.get('date', 'unknown')}")
+                        break  # One PDF usually has current + comparative year — enough
+                    else:
+                        print(f"  \u2717 AI PDF parsing returned no data for {filing.get('date', 'unknown')}")
+                except Exception as e:
+                    print(f"  \u2717 PDF parsing error: {e}")
+                    continue
 
         # Deduplicate by year and format
         seen_years = set()

@@ -144,10 +144,12 @@ class CompaniesHouseClient:
         return filings
 
     def get_document_content(self, document_metadata_url):
-        """Download iXBRL/XHTML document content.
+        """Download iXBRL/XHTML or PDF document content.
 
         Filing history gives URLs on document-api.company-information.service.gov.uk
         but metadata must be fetched from frontend-doc-api.company-information.service.gov.uk
+
+        Returns: (content_bytes, content_type_string) or (None, None)
         """
         # Rewrite the URL to use the correct domain for metadata
         meta_url = document_metadata_url
@@ -174,11 +176,6 @@ class CompaniesHouseClient:
         resources = meta.get("resources", {})
         print(f"    [doc] Available formats: {list(resources.keys())}")
 
-        # Check if iXBRL is available
-        if "application/xhtml+xml" not in resources:
-            print(f"    [doc] No iXBRL available (PDF only)")
-            return None, None
-
         # Content URL: use the self link + /content
         content_url = meta.get("links", {}).get("self", meta_url)
         if not content_url.startswith("http"):
@@ -186,18 +183,29 @@ class CompaniesHouseClient:
         if not content_url.endswith("/content"):
             content_url = content_url.rstrip("/") + "/content"
 
-        print(f"    [doc] Downloading: {content_url[:80]}...")
+        # Prefer iXBRL, fall back to PDF
+        if "application/xhtml+xml" in resources:
+            accept = "application/xhtml+xml"
+        elif "application/pdf" in resources:
+            accept = "application/pdf"
+        else:
+            print(f"    [doc] No iXBRL or PDF available")
+            return None, None
+
+        print(f"    [doc] Downloading ({accept}): {content_url[:80]}...")
         self._rate_limit()
 
         try:
-            # Request with Accept header, follow redirects to S3
             resp = self._doc_session.get(content_url, headers={
-                "Accept": "application/xhtml+xml"
+                "Accept": accept
             }, allow_redirects=True, timeout=30)
 
             if resp.status_code == 200:
                 ct = resp.headers.get("Content-Type", "")
                 print(f"    [doc] Downloaded {len(resp.content)} bytes ({ct})")
+                # Return the actual content type from the response
+                if "pdf" in ct.lower() or accept == "application/pdf":
+                    return resp.content, "application/pdf"
                 return resp.content, "application/xhtml+xml"
             else:
                 print(f"    [doc] Download failed: HTTP {resp.status_code}")
