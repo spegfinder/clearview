@@ -412,6 +412,18 @@ function ExposureCalculator({ assessment, financials, companyName }) {
       }
     }
 
+    // Dividend context
+    const divs = f.dividends_paid;
+    if (divs != null && divs > 0) {
+      if (val <= divs * 0.5) {
+        reasons.push("Company paid \u00A3" + divs.toLocaleString() + " in dividends \u2014 your exposure is well within their distributable profits");
+      } else if (val <= divs * 2) {
+        reasons.push("Company paid \u00A3" + divs.toLocaleString() + " in dividends \u2014 comparable to your exposure");
+      } else {
+        reasons.push("Company paid \u00A3" + divs.toLocaleString() + " in dividends \u2014 your exposure significantly exceeds this");
+      }
+    }
+
     // Score modifier — poor credit health escalates risk
     if (score < 30) {
       if (riskLevel === "low") riskLevel = "high";
@@ -718,6 +730,7 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
       <Stat label="Retained Earnings" value={fmt(f.retained_earnings)} alert={f.retained_earnings != null && f.retained_earnings < 0} />
       <Stat label="Total Assets" value={fmt(f.total_assets)} />
       <Stat label="Employees" value={f.employees || "\u2014"} />
+      <Stat label="Dividends Paid" value={f.dividends_paid != null ? fmt(f.dividends_paid) : "\u2014"} sub={f.dividends_derived ? "derived" : null} />
     </div>
 
     {company.financials.length > 1 && (<>

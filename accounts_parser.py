@@ -95,6 +95,13 @@ CONCEPT_MAP = {
         "CalledUpShareCapital", "ShareCapital",
         "CalledUpShareCapitalNotPaid",
     ],
+    "dividends_paid": [
+        "DividendsPaid", "EquityDividendsPaid",
+        "DividendsPaidClassifiedAsFinancingActivities",
+        "DividendsRecommendedByDirectors",
+        "DividendsPaidOtherThanToNon-controllingInterests",
+        "DividendsPaidToEquityShareholdersOfParent",
+    ],
 }
 
 
@@ -284,13 +291,13 @@ def extract_financials_from_ixbrl(content):
             "total_assets", "current_assets", "fixed_assets",
             "total_liabilities", "current_liabilities", "non_current_liabilities",
             "net_assets", "cash", "retained_earnings", "employees",
-            "creditors_due_within_year", "share_capital",
+            "creditors_due_within_year", "share_capital", "dividends_paid",
         ]
 
         for field in fields_to_extract:
             value = None
             # P&L fields should come from duration contexts; BS from instant
-            if field in ("turnover", "cost_of_sales", "gross_profit", "ebit", "net_profit", "employees"):
+            if field in ("turnover", "cost_of_sales", "gross_profit", "ebit", "net_profit", "employees", "dividends_paid"):
                 relevant_ctx = ctx_groups["duration"]
             else:
                 relevant_ctx = ctx_groups["instant"]
@@ -346,7 +353,35 @@ def extract_financials_from_ixbrl(content):
             if new_count > existing_count:
                 by_year[yr] = r
 
-    return sorted(by_year.values(), key=lambda x: x["year"], reverse=True)[:4]
+    final = sorted(by_year.values(), key=lambda x: x["year"], reverse=True)[:4]
+
+    # ── Derive dividends where not directly tagged ──
+    # Dividends = Net Profit - (RE_current - RE_prior)
+    # Also normalise directly-tagged dividends to positive
+    for r in final:
+        if r.get("dividends_paid") is not None:
+            # Cash flow statements often report dividends as negative
+            r["dividends_paid"] = abs(r["dividends_paid"])
+
+    for i, r in enumerate(final):
+        if r.get("dividends_paid") is not None:
+            continue  # already have it
+        # Need this year's profit and two consecutive years of RE
+        profit = r.get("net_profit")
+        re_current = r.get("retained_earnings")
+        # Find previous year's RE
+        re_prior = None
+        for prev in final[i+1:]:
+            if prev.get("retained_earnings") is not None:
+                re_prior = prev["retained_earnings"]
+                break
+        if profit is not None and re_current is not None and re_prior is not None:
+            derived = profit - (re_current - re_prior)
+            if derived > 0:
+                r["dividends_paid"] = round(derived)
+                r["dividends_derived"] = True
+
+    return final
 
 
 def format_for_frontend(financials_list):
@@ -370,5 +405,7 @@ def format_for_frontend(financials_list):
             "cash": f.get("cash"),
             "creditors_due_within_year": f.get("creditors_due_within_year") or f.get("current_liabilities"),
             "employees": int(f["employees"]) if f.get("employees") is not None else None,
+            "dividends_paid": f.get("dividends_paid"),
+            "dividends_derived": f.get("dividends_derived", False),
         })
     return result

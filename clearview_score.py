@@ -535,6 +535,34 @@ def score_trends(financials):
                 adjustment -= 8
                 trends.append(("Cash position declining", -8, "risk"))
 
+    # ── 3.5 Dividend analysis ──
+    if len(financials) >= 1:
+        latest = financials[0]
+        divs = latest.get("dividends_paid")
+        na = latest.get("net_assets")
+        cash = latest.get("cash")
+
+        if divs is not None and divs > 0:
+            # Paying dividends is generally a positive signal (has distributable profits)
+            trends.append((f"Dividends paid: \u00a3{divs:,.0f}", 0, "info"))
+
+            # But check if dividends are excessive relative to reserves
+            if na is not None and na > 0:
+                div_to_na = divs / na
+                if div_to_na > 0.5:
+                    adjustment -= 8
+                    trends.append(("Dividends exceed 50% of net assets \u2014 heavy extraction", -8, "risk"))
+                elif div_to_na > 0.25:
+                    adjustment -= 3
+                    trends.append(("Significant dividends relative to net assets", -3, "caution"))
+
+            # Dividends while net assets declining = red flag
+            if len(financials) >= 2:
+                prev_na = financials[1].get("net_assets")
+                if na is not None and prev_na is not None and na < prev_na:
+                    adjustment -= 5
+                    trends.append(("Paying dividends while net assets declining", -5, "risk"))
+
     score = max(0, min(100, 50 + adjustment))
     return score, trends
 
