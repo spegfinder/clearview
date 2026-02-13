@@ -151,6 +151,10 @@ def _trim_pdf_to_financials(pdf_bytes):
 def extract_financials_from_pdf(pdf_bytes):
     """Send a PDF to Claude API and extract structured financial data.
 
+    Strategy: extract text from financial pages with pypdf first, then send
+    the text to Claude. This is ~10x cheaper than sending the PDF as a document
+    since document pages are processed as images.
+
     Args:
         pdf_bytes: Raw bytes of the PDF document
 
@@ -162,19 +166,146 @@ def extract_financials_from_pdf(pdf_bytes):
         print("[PDF Parser] No ANTHROPIC_API_KEY set — skipping PDF parsing")
         return []
 
-    # Trim large PDFs to financial pages only
-    pdf_bytes = _trim_pdf_to_financials(pdf_bytes)
+    # Extract text from financial pages
+    extracted_text = _extract_financial_text(pdf_bytes)
 
-    # Encode PDF as base64
-    pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+    if not extracted_text or len(extracted_text.strip()) < 200:
+        print("[PDF Parser] Could not extract meaningful text from PDF")
+        # Fall back to sending PDF as document (more expensive but handles scanned docs)
+        return _parse_pdf_as_document(pdf_bytes, api_key)
 
-    # Check size — Claude supports up to ~32MB base64
-    size_mb = len(pdf_b64) / (1024 * 1024)
-    if size_mb > 30:
-        print(f"[PDF Parser] PDF too large ({size_mb:.1f}MB) even after trimming, skipping")
+    # Truncate if extremely long (shouldn't happen with targeted extraction)
+    if len(extracted_text) > 50000:
+        extracted_text = extracted_text[:50000]
+
+    token_est = len(extracted_text) // 4
+    print(f"[PDF Parser] Sending {len(extracted_text)} chars (~{token_est} tokens) of extracted text to Claude...")
+
+    try:
+        resp = requests.post(
+            ANTHROPIC_API_URL,
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": MODEL,
+                "max_tokens": 2000,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Here is the text extracted from a UK company's annual accounts PDF. Extract the financial data.\n\n---\n\n" + extracted_text + "\n\n---\n\n" + EXTRACTION_PROMPT,
+                    }
+                ],
+            },
+            timeout=60,
+        )
+
+        result = _handle_api_response(resp)
+        if result is not None:
+            return result
+
+        # If text approach failed, try PDF document approach as fallback
+        print("[PDF Parser] Text extraction approach failed, falling back to PDF document...")
+        return _parse_pdf_as_document(pdf_bytes, api_key)
+
+    except requests.exceptions.Timeout:
+        print("[PDF Parser] API request timed out (60s)")
+        return []
+    except Exception as e:
+        print(f"[PDF Parser] Unexpected error: {e}")
         return []
 
-    print(f"[PDF Parser] Sending {size_mb:.1f}MB PDF to Claude {MODEL}...")
+
+def _extract_financial_text(pdf_bytes):
+    """Extract text from pages containing financial statements."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        print("[PDF Parser] pypdf not available")
+        return None
+
+    try:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        total_pages = len(reader.pages)
+        print(f"[PDF Parser] PDF has {total_pages} pages, scanning for financial content...")
+
+        financial_keywords = [
+            "balance sheet", "statement of financial position",
+            "profit and loss", "income statement", "statement of comprehensive income",
+            "cash flow", "statement of cash flows",
+            "total assets", "net assets", "shareholders' funds", "shareholders' equity",
+            "retained earnings", "called up share capital",
+            "current liabilities", "non-current liabilities", "current assets",
+            "trade and other receivables", "trade and other payables",
+            "revenue", "turnover", "cost of sales", "gross profit",
+            "operating profit", "profit before tax", "profit for the year",
+            "dividends paid", "dividends per share",
+        ]
+
+        # Score each page by how many financial keywords it contains
+        page_scores = []
+        for i, page in enumerate(reader.pages):
+            try:
+                text = (page.extract_text() or "")
+                text_lower = text.lower()
+                score = sum(1 for kw in financial_keywords if kw in text_lower)
+                page_scores.append((i, score, text))
+            except Exception:
+                page_scores.append((i, 0, ""))
+
+        # Get pages with financial content (score > 0), sorted by score
+        financial_pages = [(i, score, text) for i, score, text in page_scores if score >= 2]
+        financial_pages.sort(key=lambda x: x[0])  # Keep in page order
+
+        if financial_pages:
+            # Also include 1 page before and after each financial page for context
+            page_indices = set()
+            for i, _, _ in financial_pages:
+                page_indices.update([max(0, i-1), i, min(total_pages-1, i+1)])
+            page_indices = sorted(page_indices)
+
+            # Limit to 40 pages max
+            if len(page_indices) > 40:
+                # Take pages with highest scores
+                top_pages = sorted(financial_pages, key=lambda x: x[1], reverse=True)[:30]
+                page_indices = sorted(set(i for i, _, _ in top_pages))
+
+            texts = []
+            for i in page_indices:
+                texts.append(f"--- Page {i+1} ---\n{page_scores[i][2]}")
+
+            combined = "\n\n".join(texts)
+            print(f"[PDF Parser] Extracted text from {len(page_indices)} financial pages (of {total_pages} total)")
+            return combined
+        else:
+            # No financial pages found — try last 20 pages
+            start = max(0, total_pages - 20)
+            texts = []
+            for i in range(start, total_pages):
+                text = page_scores[i][2] if page_scores[i][2] else ""
+                if text.strip():
+                    texts.append(f"--- Page {i+1} ---\n{text}")
+            print(f"[PDF Parser] No keyword matches — using last {total_pages - start} pages")
+            return "\n\n".join(texts)
+
+    except Exception as e:
+        print(f"[PDF Parser] Text extraction failed: {e}")
+        return None
+
+
+def _parse_pdf_as_document(pdf_bytes, api_key):
+    """Fallback: send trimmed PDF as a document to Claude (more expensive)."""
+    pdf_bytes = _trim_pdf_to_financials(pdf_bytes)
+    pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+
+    size_mb = len(pdf_b64) / (1024 * 1024)
+    if size_mb > 30:
+        print(f"[PDF Parser] PDF too large ({size_mb:.1f}MB) even after trimming")
+        return []
+
+    print(f"[PDF Parser] Fallback: sending {size_mb:.1f}MB PDF as document...")
 
     try:
         resp = requests.post(
@@ -210,88 +341,85 @@ def extract_financials_from_pdf(pdf_bytes):
             timeout=90,
         )
 
-        if resp.status_code != 200:
-            print(f"[PDF Parser] API error: HTTP {resp.status_code}")
-            try:
-                err = resp.json()
-                print(f"[PDF Parser] Error detail: {err.get('error', {}).get('message', 'unknown')}")
-            except Exception:
-                pass
-            return []
+        result = _handle_api_response(resp)
+        return result if result is not None else []
 
-        data = resp.json()
-
-        # Extract text from response
-        text = ""
-        for block in data.get("content", []):
-            if block.get("type") == "text":
-                text += block.get("text", "")
-
-        # Parse JSON from response
-        text = text.strip()
-        # Remove markdown code fences if present
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
-        if text.startswith("json"):
-            text = text[4:].strip()
-
-        records = json.loads(text)
-
-        if not isinstance(records, list):
-            print(f"[PDF Parser] Expected list, got {type(records)}")
-            return []
-
-        # Validate and clean records
-        valid = []
-        for r in records:
-            if not isinstance(r, dict):
-                continue
-            if not r.get("year"):
-                continue
-
-            # Ensure numeric fields are ints or None
-            for field in ["turnover", "cost_of_sales", "gross_profit", "ebit",
-                          "net_profit", "total_assets", "current_assets", "fixed_assets",
-                          "total_liabilities", "current_liabilities", "non_current_liabilities",
-                          "net_assets", "cash", "retained_earnings", "share_capital",
-                          "dividends_paid"]:
-                val = r.get(field)
-                if val is not None:
-                    try:
-                        r[field] = int(round(float(val)))
-                    except (ValueError, TypeError):
-                        r[field] = None
-
-            # Employees
-            if r.get("employees") is not None:
-                try:
-                    r["employees"] = int(r["employees"])
-                except (ValueError, TypeError):
-                    r["employees"] = None
-
-            # Check it has at least some data
-            has_data = any(r.get(k) is not None for k in [
-                "total_assets", "net_assets", "current_assets", "turnover"
-            ])
-            if has_data:
-                valid.append(r)
-
-        usage = data.get("usage", {})
-        input_tokens = usage.get("input_tokens", 0)
-        output_tokens = usage.get("output_tokens", 0)
-        print(f"[PDF Parser] Extracted {len(valid)} period(s). Tokens: {input_tokens} in / {output_tokens} out")
-
-        return valid
-
-    except requests.exceptions.Timeout:
-        print("[PDF Parser] API request timed out (90s)")
-        return []
-    except json.JSONDecodeError as e:
-        print(f"[PDF Parser] Failed to parse JSON response: {e}")
-        return []
     except Exception as e:
-        print(f"[PDF Parser] Unexpected error: {e}")
+        print(f"[PDF Parser] Document fallback error: {e}")
         return []
+
+
+def _handle_api_response(resp):
+    """Parse and validate Claude's response. Returns list of records or None on failure."""
+    if resp.status_code != 200:
+        print(f"[PDF Parser] API error: HTTP {resp.status_code}")
+        try:
+            err = resp.json()
+            print(f"[PDF Parser] Error detail: {err.get('error', {}).get('message', 'unknown')}")
+        except Exception:
+            pass
+        return None
+
+    data = resp.json()
+
+    text = ""
+    for block in data.get("content", []):
+        if block.get("type") == "text":
+            text += block.get("text", "")
+
+    # Parse JSON
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+    if text.startswith("json"):
+        text = text[4:].strip()
+
+    try:
+        records = json.loads(text)
+    except json.JSONDecodeError as e:
+        print(f"[PDF Parser] JSON parse failed: {e}")
+        return None
+
+    if not isinstance(records, list):
+        print(f"[PDF Parser] Expected list, got {type(records)}")
+        return None
+
+    # Validate records
+    valid = []
+    for r in records:
+        if not isinstance(r, dict) or not r.get("year"):
+            continue
+
+        for field in ["turnover", "cost_of_sales", "gross_profit", "ebit",
+                      "net_profit", "total_assets", "current_assets", "fixed_assets",
+                      "total_liabilities", "current_liabilities", "non_current_liabilities",
+                      "net_assets", "cash", "retained_earnings", "share_capital",
+                      "dividends_paid"]:
+            val = r.get(field)
+            if val is not None:
+                try:
+                    r[field] = int(round(float(val)))
+                except (ValueError, TypeError):
+                    r[field] = None
+
+        if r.get("employees") is not None:
+            try:
+                r["employees"] = int(r["employees"])
+            except (ValueError, TypeError):
+                r["employees"] = None
+
+        has_data = any(r.get(k) is not None for k in [
+            "total_assets", "net_assets", "current_assets", "turnover"
+        ])
+        if has_data:
+            valid.append(r)
+
+    usage = data.get("usage", {})
+    input_tokens = usage.get("input_tokens", 0)
+    output_tokens = usage.get("output_tokens", 0)
+    print(f"[PDF Parser] Extracted {len(valid)} period(s). Tokens: {input_tokens} in / {output_tokens} out")
+
+    return valid
