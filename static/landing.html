@@ -121,6 +121,7 @@
     .stats { grid-template-columns: repeat(2, 1fr); }
     .steps, .feature-grid, .pricing-grid { grid-template-columns: 1fr; }
     .hero-visual-inner { flex-direction: column; }
+    .nav-links a:not(.btn-primary) { display: none; }
   }
 </style>
 </head>
@@ -135,6 +136,7 @@
     <div class="nav-links">
       <a href="#how">How it works</a>
       <a href="#features">Features</a>
+      <a href="#why">Why Clearview</a>
       <a href="#pricing">Pricing</a>
       <a href="/app" class="btn-primary">Try Free &rarr;</a>
     </div>
@@ -144,9 +146,9 @@
 <!-- HERO -->
 <section class="hero">
   <div class="container">
-    <div class="hero-badge">&#9889; Powered by Companies House live data</div>
+    <div class="hero-badge">&#9889; Free credit checks &middot; No sign-up required</div>
     <h1>Should you do business with <em>them?</em></h1>
-    <p>Instant credit assessment for any UK company. Know who you're working with before you send the invoice.</p>
+    <p>You wouldn't lend a stranger &pound;5,000. But that's what you do every time you invoice a company you haven't checked. Find out in 30 seconds.</p>
     <div class="hero-ctas">
       <a href="/app" class="btn-primary">Check a company free &rarr;</a>
       <a href="#how" class="btn-secondary">See how it works</a>
@@ -290,24 +292,87 @@
   </div>
 </section>
 
-<!-- VS COMPETITORS -->
-<section class="vs">
+<!-- THE DIRTY SECRET -->
+<section class="vs" id="why">
   <div class="container">
-    <div class="section-label">Why Clearview</div>
-    <div class="section-title">How we compare</div>
-    <div class="section-sub">The same intelligence, without the enterprise price tag.</div>
+    <div class="section-label">The small company problem</div>
+    <div class="section-title">The &pound;25 report that knows the same as us</div>
+    <div class="section-sub" style="max-width: 600px;">Enterprise credit agencies build their scores from payment history data &mdash; shared by banks and large corporates. But that data barely covers small companies. Here&rsquo;s what actually happens when you buy a report on a 5-person Ltd company.</div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 48px; max-width: 800px;">
+      <div style="background: #0b1120; border: 1px solid #1e293b; border-radius: 14px; padding: 28px;">
+        <div style="font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 16px;">What they promise</div>
+        <div style="font-size: 13px; color: #94a3b8; line-height: 1.8;">
+          &ldquo;Payment history from 22 million monthly transactions&rdquo;<br>
+          &ldquo;Days Beyond Terms analysis&rdquo;<br>
+          &ldquo;Credit Account Information Sharing&rdquo;<br>
+          &ldquo;Comprehensive coverage of UK businesses&rdquo;
+        </div>
+      </div>
+      <div style="background: #0b1120; border: 1px solid #7f1d1d; border-radius: 14px; padding: 28px;">
+        <div style="font-size: 11px; font-weight: 700; color: #f87171; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 16px;">What you actually get for a small company</div>
+        <div style="font-size: 13px; color: #fca5a5; line-height: 1.8;">
+          Payment history: <strong>empty or 1&ndash;2 records</strong><br>
+          Days Beyond Terms: <strong>insufficient data</strong><br>
+          Score based on: <strong>Companies House filings</strong><br>
+          &hellip;the same data Clearview uses for free.
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size: 14px; color: #94a3b8; max-width: 640px; line-height: 1.8; margin-bottom: 48px;">
+      Experian&rsquo;s payment data comes from a voluntary sharing club of large corporates and banks. A micro company with 3 clients and a landlord probably doesn&rsquo;t appear in any of those ledgers. Their &pound;25 report ends up relying on the same Companies House data we analyse &mdash; just wrapped in a fancier PDF.
+    </div>
+
+    <div class="section-label">The honest comparison</div>
     <table class="vs-table">
       <thead><tr><th></th><th>Experian / Creditsafe</th><th>Clearview</th></tr></thead>
       <tbody>
-        <tr><td>Cost per report</td><td>&pound;5&ndash;30</td><td>Free / from &pound;0.40</td></tr>
-        <tr><td>Minimum commitment</td><td>Annual contract</td><td>None &mdash; pay monthly</td></tr>
+        <tr><td>Cost per check</td><td>&pound;5&ndash;30 per report</td><td>Free / from &pound;0.40</td></tr>
+        <tr><td>Minimum commitment</td><td>Annual contract or per-report</td><td>None &mdash; cancel anytime</td></tr>
         <tr><td>Setup time</td><td>Sales call + onboarding</td><td>Instant &mdash; search and go</td></tr>
-        <tr><td>Data source</td><td>Proprietary + CH</td><td>Companies House (live)</td></tr>
-        <tr><td>Covers micro/small companies</td><td>Limited</td><td>Full balance-sheet analysis</td></tr>
-        <tr><td>Multi-year trend analysis</td><td>Sometimes</td><td>Up to 4 years, always</td></tr>
-        <tr><td>Built for freelancers</td><td>No</td><td>Yes</td></tr>
+        <tr><td>Payment history (small co.)</td><td>Usually thin or empty</td><td>N/A &mdash; we don&rsquo;t pretend to have it</td></tr>
+        <tr><td>Balance sheet analysis</td><td>Basic ratios</td><td>6 ratios, multi-year weighted</td></tr>
+        <tr><td>Profit estimation (no P&amp;L)</td><td>Not provided</td><td>Derived from retained earnings</td></tr>
+        <tr><td>Multi-year trends</td><td>Sometimes, varies by plan</td><td>Up to 4 years, always</td></tr>
+        <tr><td>Filing &amp; governance signals</td><td>Included</td><td>Included</td></tr>
+        <tr><td>Built for freelancers</td><td>No &mdash; built for credit teams</td><td>Yes &mdash; plain English, instant</td></tr>
       </tbody>
     </table>
+
+    <div style="margin-top: 32px; padding: 20px 24px; background: linear-gradient(135deg, #0b1120, #0f0f2e); border: 1px solid #312e81; border-radius: 12px; max-width: 700px;">
+      <div style="font-size: 13px; color: #a5b4fc; line-height: 1.7;">
+        <strong style="color: #e2e8f0;">We&rsquo;re not saying Experian is bad.</strong> For a credit controller managing millions in receivables, their data network is invaluable. But if you&rsquo;re a freelancer checking whether a small Ltd company will pay your &pound;3,000 invoice &mdash; you&rsquo;re paying for data that probably doesn&rsquo;t exist for that company.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- WHO IT'S FOR -->
+<section style="padding: 80px 0;">
+  <div class="container">
+    <div class="section-label">Built for people like you</div>
+    <div class="section-title">Who uses Clearview</div>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 40px;">
+      <div style="background: #0b1120; border: 1px solid #1e293b; border-radius: 14px; padding: 28px;">
+        <div style="font-size: 28px; margin-bottom: 12px;">&#128187;</div>
+        <h3 style="font-size: 15px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px;">Freelancers &amp; Contractors</h3>
+        <p style="font-size: 13px; color: #64748b; line-height: 1.7; margin-bottom: 16px;">&ldquo;New client wants 60-day terms on a &pound;5k project. Are they good for it?&rdquo;</p>
+        <p style="font-size: 11px; color: #94a3b8; line-height: 1.6;">You can&rsquo;t afford to chase a bad debt for months. One quick check before you sign the contract could save you thousands.</p>
+      </div>
+      <div style="background: #0b1120; border: 1px solid #1e293b; border-radius: 14px; padding: 28px;">
+        <div style="font-size: 28px; margin-bottom: 12px;">&#127981;</div>
+        <h3 style="font-size: 15px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px;">Small Agencies</h3>
+        <p style="font-size: 13px; color: #64748b; line-height: 1.7; margin-bottom: 16px;">&ldquo;We&rsquo;re onboarding 3 new clients this month. I need a quick sanity check on all of them.&rdquo;</p>
+        <p style="font-size: 11px; color: #94a3b8; line-height: 1.6;">Running 5&ndash;20 checks a month shouldn&rsquo;t cost &pound;500. Clearview Pro gives you unlimited checks for &pound;9.99.</p>
+      </div>
+      <div style="background: #0b1120; border: 1px solid #1e293b; border-radius: 14px; padding: 28px;">
+        <div style="font-size: 28px; margin-bottom: 12px;">&#128666;</div>
+        <h3 style="font-size: 15px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px;">Trades &amp; Suppliers</h3>
+        <p style="font-size: 13px; color: #64748b; line-height: 1.7; margin-bottom: 16px;">&ldquo;Should I supply &pound;20k of materials on 30-day terms to this builder?&rdquo;</p>
+        <p style="font-size: 11px; color: #94a3b8; line-height: 1.6;">Construction is the highest-risk sector for late payment. Check before you deliver and you&rsquo;ll sleep better.</p>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -373,7 +438,7 @@
 <section class="final-cta">
   <div class="container">
     <h2>Stop guessing. Start knowing.</h2>
-    <p>Join thousands of freelancers and agencies who check before they commit. Your first 3 checks are free.</p>
+    <p>Check any UK company in 30 seconds. No sign-up, no credit card, no sales call. Your first 3 checks are completely free.</p>
     <a href="/app" class="btn-primary" style="font-size: 15px; padding: 14px 36px;">Check a company now &rarr;</a>
   </div>
 </section>
