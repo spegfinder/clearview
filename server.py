@@ -15,6 +15,7 @@ from flask_cors import CORS
 
 from ch_api import CompaniesHouseClient, build_company_data
 from accounts_parser import extract_financials_from_ixbrl, format_for_frontend
+from clearview_score import assess_company
 
 # ── Config ──
 API_KEY = os.environ.get("CH_API_KEY")
@@ -33,13 +34,29 @@ client = CompaniesHouseClient(API_KEY)
 _company_cache = {}
 
 
+@app.route("/api/ping")
+def ping():
+    return jsonify({"status": "ok", "key": API_KEY[:8] + "..."})
+
+
 # ── SIC code descriptions (common ones) ──
 SIC_DESCRIPTIONS = {}
 # We'll populate this from the API responses themselves
 
 
 @app.route("/")
-def index():
+def landing():
+    return send_from_directory("static", "landing.html")
+
+
+@app.route("/app")
+def app_page():
+    return send_from_directory("static", "index.html")
+
+
+@app.route("/report/<path:rest>")
+def report_page(rest):
+    """SPA catch-all — serve index.html for /report/XXXXX share links."""
     return send_from_directory("static", "index.html")
 
 
@@ -141,6 +158,20 @@ def company(number):
             sorted(unique_financials, key=lambda x: x["year"], reverse=True)[:4]
         )
 
+        # ── Run Clearview Credit Assessment ──
+        sorted_financials = sorted(unique_financials, key=lambda x: x["year"], reverse=True)[:4]
+        try:
+            assessment = assess_company(data, sorted_financials)
+            data["assessment"] = assessment
+            print(f"[Clearview] Score: {assessment['clearview_score']} "
+                  f"({assessment['rating']['grade']} - {assessment['rating']['label']}) "
+                  f"| Credit limit: £{assessment.get('credit_limit', {}).get('limit', '?')} "
+                  f"| Insolvency cases: {assessment.get('insolvency', {}).get('cases', 0)}")
+        except Exception as ae:
+            print(f"[Clearview] Assessment FAILED: {ae}")
+            traceback.print_exc()
+            data["assessment"] = None
+
         # Remove raw filings data before caching
         data.pop("accounts_filings", None)
 
@@ -173,6 +204,8 @@ def clear_cache():
 @app.route("/api/debug/<number>")
 def debug_company(number):
     """Debug endpoint — shows exactly what happens when fetching financials."""
+    import requests as req
+    import base64
     number = number.strip().upper()
     log = []
 
@@ -188,68 +221,88 @@ def debug_company(number):
         filings = data.get("accounts_filings", [])
         log.append(f"Found {len(filings)} accounts filings")
 
-        for i, filing in enumerate(filings[:3]):
-            log.append(f"--- Filing {i+1}: {filing.get('date', '?')} ---")
-            log.append(f"  Description: {filing.get('description', '?')}")
+        # Only test first filing in detail
+        if filings:
+            filing = filings[0]
+            log.append(f"--- Filing 1: {filing.get('date', '?')} ---")
             log.append(f"  Type: {filing.get('type', '?')}")
-            log.append(f"  Links: {json.dumps(filing.get('links', {}))}")
 
             doc_meta_link = filing.get("links", {}).get("document_metadata")
             if not doc_meta_link:
-                log.append(f"  NO document_metadata link found")
-                continue
+                log.append("  NO document_metadata link")
+                return jsonify({"log": log})
 
-            log.append(f"  document_metadata: {doc_meta_link}")
+            log.append(f"  Original URL: {doc_meta_link}")
+
+            # Rewrite to frontend-doc-api
+            meta_url = doc_meta_link.replace(
+                "https://document-api.company-information.service.gov.uk",
+                "https://frontend-doc-api.company-information.service.gov.uk"
+            )
+            log.append(f"  Rewritten URL: {meta_url}")
+
+            # Fetch metadata directly
+            encoded_key = base64.b64encode(f"{API_KEY}:".encode()).decode()
+            headers = {"Authorization": f"Basic {encoded_key}", "Accept": "application/json"}
 
             try:
-                content, content_type = client.get_document_content(doc_meta_link)
-                if content:
-                    log.append(f"  Downloaded: {len(content)} bytes, type={content_type}")
-                    # Try parsing
-                    try:
-                        parsed = extract_financials_from_ixbrl(content)
-                        if parsed:
-                            log.append(f"  Parsed {len(parsed)} period(s)")
-                            for p in parsed:
-                                fields = [k for k, v in p.items() if v is not None and k not in ("year", "period_end")]
-                                log.append(f"    {p['year']}: {', '.join(fields)}")
-                        else:
-                            log.append(f"  Parser returned no data")
-                            # Show first 500 chars of content for debugging
-                            preview = content[:500] if isinstance(content, str) else content[:500].decode('utf-8', errors='replace')
-                            log.append(f"  Content preview: {preview[:300]}")
-                    except Exception as e:
-                        log.append(f"  Parse error: {e}")
-                else:
-                    log.append(f"  Download returned None")
-            except Exception as e:
-                log.append(f"  Download error: {e}")
+                resp = req.get(meta_url, headers=headers, timeout=15)
+                log.append(f"  Metadata HTTP status: {resp.status_code}")
+                if resp.status_code == 200:
+                    meta = resp.json()
+                    log.append(f"  Resources: {list(meta.get('resources', {}).keys())}")
+                    log.append(f"  Links: {json.dumps(meta.get('links', {}))}")
 
-        # Try fallback
-        log.append("--- Trying convert-ixbrl.co.uk fallback ---")
-        try:
-            import requests as req
-            url = f"https://convert-ixbrl.co.uk/api/company/{number}"
-            log.append(f"  Fetching: {url}")
-            resp = req.get(url, timeout=15, headers={"Accept": "application/json"})
-            log.append(f"  Status: {resp.status_code}")
-            if resp.status_code == 200:
-                fdata = resp.json()
-                accounts = fdata.get("accounts", [])
-                log.append(f"  Got {len(accounts)} period(s)")
-                if accounts:
-                    log.append(f"  First period keys: {list(accounts[0].keys())[:10]}")
-            else:
-                log.append(f"  Response: {resp.text[:300]}")
-        except Exception as e:
-            log.append(f"  Fallback error: {e}")
+                    if "application/xhtml+xml" in meta.get("resources", {}):
+                        log.append("  iXBRL IS available!")
+
+                        # Try to download content
+                        content_url = meta.get("links", {}).get("self", meta_url)
+                        if not content_url.startswith("http"):
+                            content_url = f"https://frontend-doc-api.company-information.service.gov.uk{content_url}"
+                        content_url = content_url.rstrip("/") + "/content"
+                        log.append(f"  Content URL: {content_url}")
+
+                        try:
+                            resp2 = req.get(content_url, headers={
+                                "Authorization": f"Basic {encoded_key}",
+                                "Accept": "application/xhtml+xml"
+                            }, allow_redirects=True, timeout=30)
+                            log.append(f"  Content HTTP status: {resp2.status_code}")
+                            log.append(f"  Content-Type: {resp2.headers.get('Content-Type', '?')}")
+                            log.append(f"  Content length: {len(resp2.content)} bytes")
+                            if resp2.status_code == 200 and len(resp2.content) > 100:
+                                log.append("  SUCCESS - got document content")
+                                # Try parsing
+                                try:
+                                    parsed = extract_financials_from_ixbrl(resp2.content)
+                                    if parsed:
+                                        log.append(f"  Parsed {len(parsed)} period(s)")
+                                        for p in parsed:
+                                            fields = [k for k, v in p.items() if v is not None and k not in ("year", "period_end")]
+                                            log.append(f"    {p['year']}: {', '.join(fields)}")
+                                    else:
+                                        preview = resp2.content[:300].decode('utf-8', errors='replace')
+                                        log.append(f"  Parser returned nothing. Preview: {preview}")
+                                except Exception as e:
+                                    log.append(f"  Parse error: {e}")
+                            else:
+                                log.append(f"  Response preview: {resp2.content[:200].decode('utf-8', errors='replace')}")
+                        except Exception as e:
+                            log.append(f"  Content download error: {e}")
+                    else:
+                        log.append("  No iXBRL format - PDF only")
+                else:
+                    log.append(f"  Response: {resp.text[:300]}")
+            except Exception as e:
+                log.append(f"  Metadata fetch error: {e}")
 
         return jsonify({"log": log})
 
     except Exception as e:
         log.append(f"ERROR: {e}")
-        import traceback
-        log.append(traceback.format_exc())
+        import traceback as tb
+        log.append(tb.format_exc())
         return jsonify({"log": log})
 
 

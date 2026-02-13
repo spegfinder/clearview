@@ -16,6 +16,14 @@
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: #0b1120; }
   ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+  @media print {
+    body { background: #fff !important; color: #000 !important; }
+    .no-print { display: none !important; }
+    .print-only { display: block !important; }
+    div { border-color: #ddd !important; background: #fff !important; color: #333 !important; }
+    * { color-adjust: exact; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+  .print-only { display: none; }
 </style>
 </head>
 <body>
@@ -23,68 +31,62 @@
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
 
-/* ═══════════════════════════ SIC BENCHMARKS ═══════════════════════════ */
+/* SIC BENCHMARKS */
 const SIC_BENCHMARKS = {
   "01110": { sector: "Cereal Growing", rev_per_employee: 180000, gross_margin: 0.35, net_margin: 0.08, ebit_margin: 0.10, asset_turnover: 0.4, current_ratio: 1.4, sample_size: 210 },
   "10710": { sector: "Bakery & Fresh Food Mfg", rev_per_employee: 72000, gross_margin: 0.62, net_margin: 0.082, ebit_margin: 0.11, asset_turnover: 1.78, current_ratio: 1.05, sample_size: 342 },
-  "11050": { sector: "Beer Manufacturing", rev_per_employee: 155000, gross_margin: 0.39, net_margin: 0.06, ebit_margin: 0.09, asset_turnover: 0.55, current_ratio: 1.15, sample_size: 187 },
   "41100": { sector: "Property Development", rev_per_employee: 350000, gross_margin: 0.22, net_margin: 0.10, ebit_margin: 0.12, asset_turnover: 0.5, current_ratio: 1.8, sample_size: 1200 },
   "41201": { sector: "Construction (Commercial)", rev_per_employee: 125000, gross_margin: 0.28, net_margin: 0.045, ebit_margin: 0.06, asset_turnover: 1.9, current_ratio: 1.25, sample_size: 1843 },
   "41202": { sector: "Construction (Domestic)", rev_per_employee: 95000, gross_margin: 0.30, net_margin: 0.05, ebit_margin: 0.07, asset_turnover: 2.1, current_ratio: 1.2, sample_size: 2100 },
-  "43320": { sector: "Joinery Installation", rev_per_employee: 68000, gross_margin: 0.35, net_margin: 0.06, ebit_margin: 0.08, asset_turnover: 2.4, current_ratio: 1.3, sample_size: 920 },
   "43999": { sector: "Other Construction", rev_per_employee: 85000, gross_margin: 0.32, net_margin: 0.05, ebit_margin: 0.07, asset_turnover: 2.3, current_ratio: 1.2, sample_size: 2640 },
-  "45111": { sector: "New Car Sales", rev_per_employee: 420000, gross_margin: 0.12, net_margin: 0.02, ebit_margin: 0.03, asset_turnover: 3.5, current_ratio: 1.1, sample_size: 650 },
   "47110": { sector: "Retail (Food)", rev_per_employee: 48000, gross_margin: 0.25, net_margin: 0.03, ebit_margin: 0.04, asset_turnover: 2.8, current_ratio: 0.9, sample_size: 1320 },
   "55100": { sector: "Hotels", rev_per_employee: 42000, gross_margin: 0.65, net_margin: 0.06, ebit_margin: 0.10, asset_turnover: 0.4, current_ratio: 0.7, sample_size: 1100 },
   "56101": { sector: "Licensed Restaurants", rev_per_employee: 38000, gross_margin: 0.68, net_margin: 0.06, ebit_margin: 0.09, asset_turnover: 1.4, current_ratio: 0.8, sample_size: 2105 },
-  "56102": { sector: "Unlicensed Restaurants", rev_per_employee: 30000, gross_margin: 0.65, net_margin: 0.05, ebit_margin: 0.07, asset_turnover: 1.6, current_ratio: 0.75, sample_size: 1870 },
   "62012": { sector: "Software Development", rev_per_employee: 110000, gross_margin: 0.60, net_margin: 0.14, ebit_margin: 0.18, asset_turnover: 1.8, current_ratio: 2.0, sample_size: 3800 },
   "62020": { sector: "IT Consultancy", rev_per_employee: 95000, gross_margin: 0.52, net_margin: 0.12, ebit_margin: 0.15, asset_turnover: 2.1, current_ratio: 1.8, sample_size: 4200 },
   "64209": { sector: "Holding Companies", rev_per_employee: 500000, gross_margin: 0.80, net_margin: 0.30, ebit_margin: 0.35, asset_turnover: 0.15, current_ratio: 2.0, sample_size: 5200 },
-  "68100": { sector: "Real Estate (Buy/Sell)", rev_per_employee: 210000, gross_margin: 0.45, net_margin: 0.18, ebit_margin: 0.22, asset_turnover: 0.25, current_ratio: 1.6, sample_size: 980 },
   "68209": { sector: "Real Estate (Letting)", rev_per_employee: 150000, gross_margin: 0.60, net_margin: 0.25, ebit_margin: 0.30, asset_turnover: 0.15, current_ratio: 1.2, sample_size: 4500 },
   "69201": { sector: "Accounting Services", rev_per_employee: 72000, gross_margin: 0.55, net_margin: 0.15, ebit_margin: 0.19, asset_turnover: 1.9, current_ratio: 1.5, sample_size: 3100 },
   "70229": { sector: "Management Consultancy", rev_per_employee: 105000, gross_margin: 0.48, net_margin: 0.12, ebit_margin: 0.15, asset_turnover: 2.0, current_ratio: 1.6, sample_size: 3400 },
-  "74100": { sector: "Design Activities", rev_per_employee: 62000, gross_margin: 0.55, net_margin: 0.10, ebit_margin: 0.13, asset_turnover: 2.2, current_ratio: 1.4, sample_size: 1200 },
   "86210": { sector: "General Medical Practice", rev_per_employee: 78000, gross_margin: 0.52, net_margin: 0.10, ebit_margin: 0.13, asset_turnover: 2.2, current_ratio: 1.4, sample_size: 510 },
-  "86230": { sector: "Dental Practice", rev_per_employee: 92000, gross_margin: 0.58, net_margin: 0.14, ebit_margin: 0.18, asset_turnover: 2.5, current_ratio: 1.3, sample_size: 620 },
-  "93130": { sector: "Fitness Facilities", rev_per_employee: 35000, gross_margin: 0.55, net_margin: 0.05, ebit_margin: 0.08, asset_turnover: 0.8, current_ratio: 0.7, sample_size: 740 },
   "96020": { sector: "Hairdressing & Beauty", rev_per_employee: 28000, gross_margin: 0.72, net_margin: 0.08, ebit_margin: 0.11, asset_turnover: 2.0, current_ratio: 1.1, sample_size: 890 },
   "_default": { sector: "All Industries", rev_per_employee: 82000, gross_margin: 0.42, net_margin: 0.07, ebit_margin: 0.10, asset_turnover: 1.5, current_ratio: 1.2, sample_size: 75000 },
 };
 function getBench(sic) { return SIC_BENCHMARKS[sic] || SIC_BENCHMARKS["_default"]; }
 
-/* ═══════════════════════════ ESTIMATION (kept for data display) ═══════════════════════════ */
+/* ESTIMATION (kept for data display) */
 function estimateFinancials(f, sic, prevF) {
   const bench = getBench(sic);
-  const hasAll = f.turnover != null && f.ebit != null;
-  if (hasAll) return { ...f, estimated: false, method: "full", benchmark: bench, dataFields: getDF(f), confidence: 1.0 };
-  const est = { ...f, estimated: true, benchmark: bench, estimates: {}, gaps: [] };
+  const est = { ...f, benchmark: bench, dataFields: getDF(f) };
   const hasT = f.turnover != null, hasNP = f.net_profit != null, hasE = f.ebit != null;
-  const hasGP = f.gross_profit != null, hasEmp = f.employees && f.employees > 0, hasRE = f.retained_earnings != null;
-  if (hasT) { est.est_turnover = f.turnover; est.est_turnover_low = f.turnover; est.est_turnover_high = f.turnover; est.estimates.revenue = { source: "filed" }; }
-  else if (hasEmp) { est.est_turnover = f.employees * bench.rev_per_employee; est.est_turnover_low = f.employees * bench.rev_per_employee * 0.7; est.est_turnover_high = f.employees * bench.rev_per_employee * 1.35; est.estimates.revenue = { source: "estimated" }; est.gaps.push("turnover"); }
-  else if (f.total_assets) { est.est_turnover = f.total_assets * bench.asset_turnover; est.est_turnover_low = f.total_assets * bench.asset_turnover * 0.5; est.est_turnover_high = f.total_assets * bench.asset_turnover * 1.5; est.estimates.revenue = { source: "estimated" }; est.gaps.push("turnover"); }
-  if (hasE) { est.estimates.ebit = { source: "filed" }; } else { est.estimates.ebit = { source: "estimated" }; }
-  if (hasNP) { est.estimates.net_profit = { source: "filed" }; } else { est.estimates.net_profit = { source: "estimated" }; }
-  if (hasRE) est.est_retained_earnings = f.retained_earnings;
-  if (prevF && f.net_assets != null && prevF.net_assets != null) est.est_implied_profit = f.net_assets - prevF.net_assets;
-  let conf = 0.3;
-  if (hasT) conf += 0.25; if (hasNP) conf += 0.15; if (hasE) conf += 0.15;
-  if (hasGP) conf += 0.05; if (hasEmp) conf += 0.05; if (hasRE) conf += 0.05;
-  est.confidence = Math.min(conf, 1.0);
+  const hasEmp = f.employees && f.employees > 0, hasRE = f.retained_earnings != null;
+  if (hasT && hasE) { est.estimated = false; est.method = "full"; est.confidence = 1.0; return est; }
+  est.estimated = true;
   if (hasT && hasNP) est.method = "partial_pl"; else if (hasT) est.method = "turnover_only";
   else if (hasEmp) est.method = "sic_employee_model"; else est.method = "balance_sheet_only";
-  est.dataFields = getDF(f);
+  let conf = 0.3; if (hasT) conf += 0.25; if (hasNP) conf += 0.15; if (hasE) conf += 0.15; if (hasEmp) conf += 0.05; if (hasRE) conf += 0.05;
+  est.confidence = Math.min(conf, 1.0);
   return est;
 }
 function getDF(f) {
-  return { turnover: f.turnover != null, cost_of_sales: f.cost_of_sales != null, gross_profit: f.gross_profit != null, ebit: f.ebit != null, net_profit: f.net_profit != null, retained_earnings: f.retained_earnings != null, current_assets: f.current_assets != null, current_liabilities: f.current_liabilities != null, cash: f.cash != null, employees: f.employees != null && f.employees > 0 };
+  return { turnover: f.turnover != null, gross_profit: f.gross_profit != null, ebit: f.ebit != null, net_profit: f.net_profit != null, retained_earnings: f.retained_earnings != null, current_assets: f.current_assets != null, current_liabilities: f.current_liabilities != null, cash: f.cash != null, employees: f.employees != null && f.employees > 0 };
 }
 
-/* ═══════════════════════════ UI UTILS ═══════════════════════════ */
+/* UI UTILS */
 const fmt = (n) => { if (n == null) return "\u2014"; const a = Math.abs(n); const s = n < 0 ? "-" : ""; if (a >= 1e9) return s+"\u00A3"+(a/1e9).toFixed(1)+"bn"; if (a >= 1e6) return s+"\u00A3"+(a/1e6).toFixed(1)+"m"; if (a >= 1e3) return s+"\u00A3"+(a/1e3).toFixed(0)+"k"; return s+"\u00A3"+a; };
 const pf = (n) => n == null ? "\u2014" : (n > 0 ? "+" : "")+n.toFixed(1)+"%";
+const companyAge = (doc) => { if (!doc) return null; try { return ((Date.now() - new Date(doc).getTime()) / 31557600000); } catch(e) { return null; } };
+
+/* TRAFFIC LIGHT for search results */
+function TrafficLight({ status, dateOfCreation }) {
+  const age = companyAge(dateOfCreation);
+  let col = "#10b981", tip = "Active";
+  if (status === "dissolved" || status === "liquidation") { col = "#ef4444"; tip = "Dissolved"; }
+  else if (status !== "active") { col = "#f59e0b"; tip = status; }
+  else if (age !== null && age < 2) { col = "#f59e0b"; tip = "Young company (<2yr)"; }
+  else if (age !== null && age >= 10) { col = "#10b981"; tip = "Established ("+Math.floor(age)+"yr)"; }
+  return <div title={tip} style={{ width: 10, height: 10, borderRadius: "50%", background: col, flexShrink: 0 }} />;
+}
 
 function MiniChart({ data, dataKey, color, height = 48 }) {
   const vals = data.map(d => d[dataKey]).filter(v => v != null);
@@ -103,19 +105,16 @@ function MiniChart({ data, dataKey, color, height = 48 }) {
   </svg>);
 }
 
-function Stat({ label, value, sub, alert, source }) {
-  const isEst = source === "estimated" || source === "derived";
-  return (<div style={{ padding: "11px 13px", background: "#0b1120", borderRadius: 8, border: "1px solid "+(alert ? "#7f1d1d" : "#1e293b"), position: "relative" }}>
-    {isEst && <div style={{ position: "absolute", top: 3, right: 5, fontSize: 7, color: "#818cf8", fontWeight: 700, letterSpacing: 0.5, padding: "1px 4px", background: "#1e1b4b", borderRadius: 3 }}>EST</div>}
+function Stat({ label, value, sub, alert }) {
+  return (<div style={{ padding: "11px 13px", background: "#0b1120", borderRadius: 8, border: "1px solid "+(alert ? "#7f1d1d" : "#1e293b") }}>
     <div style={{ fontSize: 9, color: "#64748b", fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
-    <div style={{ fontSize: 17, fontWeight: 700, color: alert ? "#f87171" : isEst ? "#a5b4fc" : "#f1f5f9", fontFamily: "'JetBrains Mono', monospace", letterSpacing: -0.5 }}>{value}</div>
+    <div style={{ fontSize: 17, fontWeight: 700, color: alert ? "#f87171" : "#f1f5f9", fontFamily: "'JetBrains Mono', monospace", letterSpacing: -0.5 }}>{value}</div>
     {sub && <div style={{ fontSize: 9, color: "#64748b", marginTop: 2 }}>{sub}</div>}
   </div>);
 }
 
-/* ═══════════════════════════ DATA BAR ═══════════════════════════ */
 function DataBar({ est, accountType }) {
-  const fields = [{ k: "turnover", l: "Turnover" }, { k: "gross_profit", l: "Gross Profit" }, { k: "ebit", l: "EBIT" }, { k: "net_profit", l: "Net Profit" }, { k: "retained_earnings", l: "Ret. Earnings" }, { k: "current_assets", l: "Current Assets" }, { k: "cash", l: "Cash" }, { k: "employees", l: "Employees" }];
+  const fields = [{ k: "turnover", l: "Turnover" }, { k: "ebit", l: "EBIT" }, { k: "net_profit", l: "Net Profit" }, { k: "retained_earnings", l: "Ret. Earnings" }, { k: "current_assets", l: "Current Assets" }, { k: "cash", l: "Cash" }, { k: "employees", l: "Employees" }];
   const filed = fields.filter(f => est.dataFields?.[f.k]); const pct = (filed.length / fields.length * 100).toFixed(0);
   return (<div style={{ background: "#0b1120", borderRadius: 10, border: "1px solid #1e293b", padding: "14px 18px", marginBottom: 20 }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -128,7 +127,7 @@ function DataBar({ est, accountType }) {
   </div>);
 }
 
-/* ═══════════════════════════ SCORE RING ═══════════════════════════ */
+/* SCORE RING */
 function ScoreRing({ score, grade, label, color, size = 130 }) {
   const r = (size - 12) / 2, circ = 2 * Math.PI * r;
   const offset = circ * (1 - Math.max(0, Math.min(100, score)) / 100);
@@ -143,13 +142,12 @@ function ScoreRing({ score, grade, label, color, size = 130 }) {
       <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
         <div style={{ fontSize: 28, fontWeight: 800, color, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>{grade}</div>
         <div style={{ fontSize: 18, fontWeight: 700, color: "#94a3b8", fontFamily: "'JetBrains Mono', monospace", lineHeight: 1, marginTop: 2 }}>{Math.round(score)}</div>
-        <div style={{ fontSize: 8, fontWeight: 600, color: "#475569", marginTop: 3, letterSpacing: 0.5 }}>{label}</div>
+        <div style={{ fontSize: 8, fontWeight: 600, color: "#475569", marginTop: 3 }}>{label}</div>
       </div>
     </div>
   );
 }
 
-/* ═══════════════════════════ PILLAR BAR ═══════════════════════════ */
 function PillarBar({ label, score, icon, description }) {
   const col = score >= 65 ? "#10b981" : score >= 50 ? "#f59e0b" : score >= 35 ? "#f97316" : "#ef4444";
   const txt = score >= 65 ? "Good" : score >= 50 ? "Fair" : score >= 35 ? "Weak" : "Poor";
@@ -170,8 +168,48 @@ function PillarBar({ label, score, icon, description }) {
   );
 }
 
-/* ═══════════════════════════ ASSESSMENT PANEL ═══════════════════════════ */
-function AssessmentPanel({ assessment, companyName }) {
+/* INDUSTRY BENCHMARK */
+function BenchmarkPanel({ company }) {
+  const sic = (company.sic_codes || [])[0];
+  const bench = getBench(sic);
+  const f = company.financials[0];
+  if (!f || !f.total_assets) return null;
+
+  const metrics = [];
+  const cr = f.current_assets && (f.current_liabilities || f.creditors_due_within_year) ? f.current_assets / (f.current_liabilities || f.creditors_due_within_year) : null;
+  if (cr !== null) metrics.push({ label: "Current Ratio", value: cr, benchmark: bench.current_ratio, fmt: v => v.toFixed(2) });
+  const na_ratio = f.net_assets != null && f.total_assets ? f.net_assets / f.total_assets : null;
+  if (na_ratio !== null) metrics.push({ label: "Equity Ratio", value: na_ratio, benchmark: 0.35, fmt: v => (v*100).toFixed(0)+"%" });
+  const debt_ratio = f.total_assets && f.net_assets != null ? (f.total_assets - f.net_assets) / f.total_assets : null;
+  if (debt_ratio !== null) metrics.push({ label: "Debt Ratio", value: debt_ratio, benchmark: 0.60, fmt: v => (v*100).toFixed(0)+"%", invert: true });
+
+  if (!metrics.length) return null;
+
+  return (
+    <div style={{ background: "#0b1120", borderRadius: 10, border: "1px solid #1e293b", padding: "14px 18px", marginBottom: 20 }}>
+      <div style={{ fontSize: 8, fontWeight: 700, color: "#94a3b8", letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>
+        vs Industry {"\u00B7"} {bench.sector} {bench !== SIC_BENCHMARKS["_default"] ? "(SIC "+sic+")" : ""} {"\u00B7"} {bench.sample_size.toLocaleString()} companies
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat("+metrics.length+", 1fr)", gap: 8 }}>
+        {metrics.map((m, i) => {
+          const better = m.invert ? m.value < m.benchmark : m.value > m.benchmark;
+          const col = better ? "#10b981" : Math.abs(m.value - m.benchmark) / m.benchmark < 0.15 ? "#f59e0b" : "#ef4444";
+          return (
+            <div key={i} style={{ textAlign: "center", padding: "10px", background: "#060a12", borderRadius: 8 }}>
+              <div style={{ fontSize: 9, color: "#64748b", marginBottom: 4 }}>{m.label}</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: col, fontFamily: "'JetBrains Mono', monospace" }}>{m.fmt(m.value)}</div>
+              <div style={{ fontSize: 8, color: "#475569", marginTop: 3 }}>Industry avg: {m.fmt(m.benchmark)}</div>
+              <div style={{ fontSize: 8, fontWeight: 700, color: col, marginTop: 2 }}>{better ? "\u25B2 Above" : "\u25BC Below"}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ASSESSMENT PANEL */
+function AssessmentPanel({ assessment, companyName, onHelp }) {
   if (!assessment) return null;
   const { clearview_score, rating, confidence, pillars } = assessment;
   const col = rating.grade === "A" ? "#10b981" : rating.grade === "B" ? "#34d399" : rating.grade === "C" ? "#f59e0b" : rating.grade === "D" ? "#f97316" : rating.grade === "E" ? "#ef4444" : "#dc2626";
@@ -179,11 +217,11 @@ function AssessmentPanel({ assessment, companyName }) {
   const confLabel = confidence === "high" ? "High confidence" : confidence === "medium" ? "Medium confidence" : "Limited data";
 
   const fh = pillars.financial_health.score;
-  const fhD = fh >= 65 ? "Balance sheet looks healthy with adequate reserves and manageable debts." : fh >= 50 ? "Financials are acceptable but some ratios could be stronger." : fh >= 35 ? "Some financial concerns \u2014 thin margins or high debts relative to assets." : "Significant financial stress \u2014 liabilities may exceed assets or liquidity is very tight.";
+  const fhD = fh >= 65 ? "Balance sheet looks healthy with adequate reserves." : fh >= 50 ? "Financials acceptable but some ratios could be stronger." : fh >= 35 ? "Financial concerns \u2014 thin margins or high debts." : "Significant financial stress.";
   const st = pillars.stability.score;
-  const stD = st >= 65 ? "Well-established with a stable track record and clean filing history." : st >= 50 ? "Reasonably stable but some factors worth noting." : st >= 35 ? "Some warning signs around company governance or filing behaviour." : "Multiple red flags \u2014 late filings, director changes, or other concerns.";
+  const stD = st >= 65 ? "Well-established with clean filing history." : st >= 50 ? "Reasonably stable, some factors worth noting." : st >= 35 ? "Warning signs around governance or filings." : "Multiple red flags.";
   const tr = pillars.trend.score;
-  const trD = tr >= 65 ? "Key figures are improving year-on-year." : tr >= 50 ? "Figures are broadly stable compared to last year." : tr >= 35 ? "Some measures are declining \u2014 worth monitoring." : "Significant deterioration in financial position.";
+  const trD = tr >= 65 ? "Key figures improving year-on-year." : tr >= 50 ? "Figures broadly stable." : tr >= 35 ? "Some measures declining." : "Significant deterioration.";
 
   const signals = pillars.stability.signals || [];
   const flags = signals.filter(s => s[2] === "high_risk" || s[2] === "risk" || s[2] === "caution");
@@ -199,12 +237,12 @@ function AssessmentPanel({ assessment, companyName }) {
   else if (clearview_score >= 35) vp.push(companyName+" shows signs of financial weakness.");
   else vp.push(companyName+" shows significant signs of financial distress.");
   if (flags.length > 0) vp.push("Key concern: "+flags[0][0].toLowerCase()+".");
-  if (trendInfo.length > 0) vp.push(trendInfo[0][0]+".");
+  if (trendInfo.length > 0 && trendInfo[0][0].startsWith("Estimated")) vp.push(trendInfo[0][0]+".");
   if (clearview_score >= 65) vp.push("Standard credit terms appear reasonable.");
-  else if (clearview_score >= 50) vp.push("Consider monitoring or requesting references before extending significant credit.");
-  else if (clearview_score >= 35) vp.push("Consider upfront payment or reduced credit terms.");
+  else if (clearview_score >= 50) vp.push("Consider monitoring or requesting references.");
+  else if (clearview_score >= 35) vp.push("Consider upfront payment or reduced terms.");
   else vp.push("Upfront payment or guarantees strongly recommended.");
-  if (confidence === "low") vp.push("Note: limited data available \u2014 treat this assessment with caution.");
+  if (confidence === "low") vp.push("Limited data \u2014 treat with caution.");
 
   const allFlags = [...flags, ...trendFlags];
   const allPos = [...positives, ...trendPos];
@@ -213,7 +251,10 @@ function AssessmentPanel({ assessment, companyName }) {
     <div style={{ marginBottom: 20 }}>
       <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 16, marginBottom: 16 }}>
         <div style={{ background: "#0b1120", borderRadius: 14, border: "1px solid "+col+"22", padding: "20px 24px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minWidth: 178 }}>
-          <div style={{ fontSize: 8, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10 }}>Clearview Score</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <span style={{ fontSize: 8, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.5, textTransform: "uppercase" }}>Clearview Score</span>
+            <button onClick={onHelp} className="no-print" style={{ all: "unset", cursor: "pointer", width: 14, height: 14, borderRadius: "50%", background: "#1e293b", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 800, color: "#6366f1" }}>?</button>
+          </div>
           <ScoreRing score={clearview_score} grade={rating.grade} label={rating.label} color={col} />
           <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 5 }}>
             <div style={{ width: 6, height: 6, borderRadius: "50%", background: confCol }} />
@@ -229,40 +270,40 @@ function AssessmentPanel({ assessment, companyName }) {
 
       {(allFlags.length > 0 || allPos.length > 0) && (
         <div style={{ display: "grid", gridTemplateColumns: allFlags.length > 0 && allPos.length > 0 ? "1fr 1fr" : "1fr", gap: 10, marginBottom: 16 }}>
-          {allFlags.length > 0 && (
-            <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "12px 16px" }}>
-              <div style={{ fontSize: 8, fontWeight: 700, color: "#f87171", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Concerns</div>
-              {allFlags.map((s, i) => (
-                <div key={i} style={{ fontSize: 10, color: s[2] === "high_risk" ? "#fca5a5" : s[2] === "risk" ? "#fdba74" : "#fde68a", padding: "3px 0", display: "flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ fontSize: 6, color: s[2] === "high_risk" ? "#ef4444" : s[2] === "risk" ? "#f97316" : "#f59e0b" }}>{"\u25CF"}</span> {s[0]}
-                </div>
-              ))}
-            </div>
-          )}
-          {allPos.length > 0 && (
-            <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "12px 16px" }}>
-              <div style={{ fontSize: 8, fontWeight: 700, color: "#6ee7b7", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Strengths</div>
-              {allPos.map((s, i) => (
-                <div key={i} style={{ fontSize: 10, color: "#6ee7b7", padding: "3px 0", display: "flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ fontSize: 6, color: "#10b981" }}>{"\u25CF"}</span> {s[0]}
-                </div>
-              ))}
-            </div>
-          )}
+          {allFlags.length > 0 && <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "12px 16px" }}>
+            <div style={{ fontSize: 8, fontWeight: 700, color: "#f87171", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Concerns</div>
+            {allFlags.map((s, i) => <div key={i} style={{ fontSize: 10, color: s[2]==="high_risk" ? "#fca5a5" : "#fdba74", padding: "3px 0" }}>{"\u25CF"} {s[0]}</div>)}
+          </div>}
+          {allPos.length > 0 && <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "12px 16px" }}>
+            <div style={{ fontSize: 8, fontWeight: 700, color: "#6ee7b7", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Strengths</div>
+            {allPos.map((s, i) => <div key={i} style={{ fontSize: 10, color: "#6ee7b7", padding: "3px 0" }}>{"\u25CF"} {s[0]}</div>)}
+          </div>}
         </div>
       )}
 
-      {trendInfo.length > 0 && (
-        <div style={{ background: "#0f0f2e", borderRadius: 8, border: "1px solid #312e81", padding: "10px 14px", marginBottom: 16 }}>
-          {trendInfo.map((t, i) => (
-            <div key={i} style={{ fontSize: 11, color: "#a5b4fc", fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 10 }}>{"\uD83D\uDCA1"}</span> {t[0]}
-              <span style={{ fontSize: 8, color: "#475569", marginLeft: "auto" }}>Based on balance sheet movements</span>
-            </div>
-          ))}
+      {trendInfo.length > 0 && <div style={{ background: "#0f0f2e", borderRadius: 8, border: "1px solid #312e81", padding: "10px 14px", marginBottom: 16 }}>
+        {trendInfo.map((t, i) => <div key={i} style={{ fontSize: 11, color: "#a5b4fc", fontWeight: 500 }}>{"\uD83D\uDCA1"} {t[0]}</div>)}
+      </div>}
+
+      {/* Insolvency Warning */}
+      {assessment.insolvency && (assessment.insolvency.active || assessment.insolvency.cases > 0) && (
+        <div style={{ background: "#450a0a", borderRadius: 10, border: "1px solid #991b1b", padding: "14px 18px", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 18 }}>{"\u26A0\uFE0F"}</span>
+            <span style={{ fontSize: 12, fontWeight: 800, color: "#fca5a5", textTransform: "uppercase", letterSpacing: 1 }}>
+              {assessment.insolvency.active ? "Active Insolvency" : "Insolvency History"}
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: "#fca5a5", lineHeight: 1.7 }}>
+            {assessment.insolvency.active
+              ? "This company has an active insolvency proceeding. Do not extend credit."
+              : `This company has ${assessment.insolvency.cases} past insolvency case(s) on record. Exercise extreme caution.`}
+            {assessment.insolvency.gazette_notices > 0 && ` ${assessment.insolvency.gazette_notices} Gazette insolvency notice(s) found.`}
+          </div>
         </div>
       )}
 
+      {/* Recommendation */}
       <div style={{ background: "linear-gradient(135deg, #0b1120 0%, #1a1033 100%)", borderRadius: 10, border: "1px solid #2e1065", padding: "16px 20px" }}>
         <div style={{ fontSize: 8, fontWeight: 700, color: "#a78bfa", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>Recommendation</div>
         <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.7 }}>{vp.join(" ")}</div>
@@ -271,51 +312,249 @@ function AssessmentPanel({ assessment, companyName }) {
   );
 }
 
-/* ═══════════════════════════ SCORE EXPLAINER ═══════════════════════════ */
-function ScoreExplainer() {
-  const [open, setOpen] = useState(false);
-  const bands = [
-    { g: "A", l: "Strong", c: "#10b981", r: "80\u2013100" },
-    { g: "B", l: "Good", c: "#34d399", r: "65\u201379" },
-    { g: "C", l: "Fair", c: "#f59e0b", r: "50\u201364" },
-    { g: "D", l: "Weak", c: "#f97316", r: "35\u201349" },
-    { g: "E", l: "Poor", c: "#ef4444", r: "20\u201334" },
-    { g: "F", l: "Critical", c: "#dc2626", r: "0\u201319" },
-  ];
+/* EXPOSURE CALCULATOR */
+function ExposureCalculator({ assessment, financials, companyName }) {
+  const [amount, setAmount] = useState("");
+  const [result, setResult] = useState(null);
+
+  const calculate = () => {
+    const val = parseFloat(amount.replace(/[£,\s]/g, ""));
+    if (!val || val <= 0 || !assessment) return;
+
+    const f = financials?.[0] || {};
+    const score = assessment.clearview_score || 50;
+    const insolvency = assessment.insolvency || {};
+    const reasons = [];
+    let riskLevel = "low"; // low, medium, high, very_high, do_not_lend
+
+    // Immediate blockers
+    if (insolvency.active) {
+      setResult({ level: "do_not_lend", color: "#991b1b", bg: "#450a0a", border: "#991b1b",
+        icon: "\u26D4", headline: "Do not extend credit",
+        summary: "This company has an active insolvency proceeding. Any credit extended is at serious risk of total loss.",
+        reasons: ["Active insolvency proceeding"], ratios: [] });
+      return;
+    }
+
+    // Calculate ratios
+    const ratios = [];
+    const na = f.net_assets;
+    const cash = f.cash;
+    const ca = f.current_assets;
+    const turnover = f.turnover;
+    const cl = f.current_liabilities || f.creditors_due_within_year;
+
+    let naRatio = null, cashRatio = null, caRatio = null, turnRatio = null;
+
+    if (na != null && na > 0) {
+      naRatio = (val / na) * 100;
+      ratios.push({ label: "% of net assets", value: naRatio, fmt: naRatio.toFixed(1) + "%" });
+    }
+    if (cash != null && cash > 0) {
+      cashRatio = (val / cash) * 100;
+      ratios.push({ label: "% of cash", value: cashRatio, fmt: cashRatio.toFixed(1) + "%" });
+    }
+    if (ca != null && ca > 0) {
+      caRatio = (val / ca) * 100;
+      ratios.push({ label: "% of current assets", value: caRatio, fmt: caRatio.toFixed(1) + "%" });
+    }
+    if (turnover != null && turnover > 0) {
+      turnRatio = (val / turnover) * 100;
+      ratios.push({ label: "% of turnover", value: turnRatio, fmt: turnRatio.toFixed(1) + "%" });
+    }
+
+    // Size-relative risk assessment
+    // Net assets ratio is the primary signal
+    if (naRatio != null) {
+      if (naRatio <= 1) {
+        reasons.push("\u00A3" + val.toLocaleString() + " is tiny relative to their net assets (" + naRatio.toFixed(1) + "%) \u2014 very low exposure");
+        // stays low
+      } else if (naRatio <= 5) {
+        reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 modest exposure");
+        if (riskLevel === "low") riskLevel = "low";
+      } else if (naRatio <= 15) {
+        reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 meaningful exposure");
+        riskLevel = "medium";
+      } else if (naRatio <= 40) {
+        reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 significant exposure");
+        riskLevel = "high";
+      } else {
+        reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 this is a very large exposure");
+        riskLevel = "very_high";
+      }
+    } else if (na != null && na <= 0) {
+      reasons.push("Company has negative or zero net assets \u2014 no asset backing for your exposure");
+      riskLevel = "very_high";
+    }
+
+    // Cash coverage
+    if (cashRatio != null) {
+      if (cashRatio <= 50) {
+        reasons.push("Could cover this from cash alone");
+      } else if (cashRatio <= 200) {
+        reasons.push("Would use " + cashRatio.toFixed(0) + "% of their cash reserves");
+        if (riskLevel === "low") riskLevel = "medium";
+      } else {
+        reasons.push("Exceeds their cash reserves by " + (cashRatio / 100).toFixed(1) + "x");
+        if (riskLevel !== "very_high") riskLevel = "high";
+      }
+    }
+
+    // Turnover context
+    if (turnRatio != null) {
+      if (turnRatio <= 0.5) {
+        reasons.push("Less than 1 day\u2019s revenue for this business");
+      } else if (turnRatio <= 2) {
+        reasons.push("Roughly " + Math.max(1, Math.round(turnRatio * 3.65)) + " days\u2019 revenue");
+      } else if (turnRatio > 10) {
+        reasons.push("Equivalent to " + Math.round(turnRatio * 3.65) + " days\u2019 revenue \u2014 substantial for their size");
+        if (riskLevel === "low") riskLevel = "medium";
+      }
+    }
+
+    // Score modifier — poor credit health escalates risk
+    if (score < 30) {
+      if (riskLevel === "low") riskLevel = "high";
+      else if (riskLevel === "medium") riskLevel = "very_high";
+      reasons.push("Clearview score is very low (" + Math.round(score) + "/100) \u2014 elevated default risk regardless of size");
+    } else if (score < 45) {
+      if (riskLevel === "low") riskLevel = "medium";
+      else if (riskLevel === "medium") riskLevel = "high";
+      reasons.push("Below-average credit score (" + Math.round(score) + "/100) increases risk");
+    } else if (score >= 75) {
+      reasons.push("Strong credit score (" + Math.round(score) + "/100) provides additional comfort");
+    }
+
+    // Past insolvency
+    if (insolvency.cases > 0) {
+      if (riskLevel === "low") riskLevel = "medium";
+      else if (riskLevel === "medium") riskLevel = "high";
+      reasons.push("Past insolvency history adds risk");
+    }
+
+    // No financial data at all
+    if (naRatio == null && cashRatio == null && caRatio == null && turnRatio == null) {
+      reasons.push("Limited financial data available \u2014 cannot assess exposure relative to company size");
+      riskLevel = score >= 50 ? "medium" : "high";
+    }
+
+    const levels = {
+      low: { color: "#10b981", bg: "#052e16", border: "#065f46", icon: "\u2705", headline: "Low risk",
+        summary: "\u00A3" + val.toLocaleString() + " appears to be a comfortable level of exposure for a company of this size." },
+      medium: { color: "#f59e0b", bg: "#1c1507", border: "#854d0e", icon: "\u26A0\uFE0F", headline: "Moderate risk",
+        summary: "\u00A3" + val.toLocaleString() + " is a noticeable exposure for this company. Standard credit terms are reasonable but consider your payment terms." },
+      high: { color: "#f97316", bg: "#1a0f00", border: "#9a3412", icon: "\uD83D\uDFE0", headline: "Elevated risk",
+        summary: "\u00A3" + val.toLocaleString() + " represents a material exposure. Consider shorter payment terms, deposits, or staged payments." },
+      very_high: { color: "#ef4444", bg: "#1a0505", border: "#991b1b", icon: "\uD83D\uDD34", headline: "High risk",
+        summary: "\u00A3" + val.toLocaleString() + " is a very significant exposure relative to this company\u2019s size. Strongly consider upfront payment, personal guarantees, or declining." },
+    };
+
+    setResult({ ...levels[riskLevel], level: riskLevel, reasons, ratios });
+  };
+
+  const handleKey = (e) => { if (e.key === "Enter") calculate(); };
+
   return (
-    <div style={{ marginBottom: 16 }}>
-      <button onClick={() => setOpen(!open)} style={{ all: "unset", cursor: "pointer", fontSize: 10, color: "#6366f1", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-        {open ? "\u25BE" : "\u25B8"} What does this score mean?
-      </button>
-      {open && (
-        <div style={{ background: "#0b1120", borderRadius: 10, border: "1px solid #1e293b", padding: "16px 20px", marginTop: 8 }}>
-          <div style={{ fontSize: 11, color: "#cbd5e1", lineHeight: 1.8 }}>
-            <p style={{ marginBottom: 10 }}>The <strong style={{ color: "#a5b4fc" }}>Clearview Score</strong> (0\u2013100) assesses a company's creditworthiness using publicly available data from Companies House. It combines three areas:</p>
-            <p style={{ marginBottom: 6 }}><strong style={{ color: "#e2e8f0" }}>{"\uD83D\uDCCA"} Financial Health</strong> \u2014 analyses the balance sheet for solvency, liquidity, and leverage. Can the company pay its debts? Does it have enough cash? How much does it owe relative to what it owns?</p>
-            <p style={{ marginBottom: 6 }}><strong style={{ color: "#e2e8f0" }}>{"\uD83C\uDFE2"} Company Stability</strong> \u2014 considers how long the company has been trading, whether filings are up to date, director changes, and any outstanding secured debts registered against the company.</p>
-            <p style={{ marginBottom: 10 }}><strong style={{ color: "#e2e8f0" }}>{"\uD83D\uDCC8"} Year-on-Year Trend</strong> \u2014 tracks whether the company's financial position is improving, stable, or getting worse compared to the previous year.</p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
-              {bands.map(b => (
-                <div key={b.g} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: "#060a12", borderRadius: 5 }}>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: b.c, fontFamily: "'JetBrains Mono', monospace", width: 20 }}>{b.g}</span>
-                  <div>
-                    <div style={{ fontSize: 9, fontWeight: 600, color: "#e2e8f0" }}>{b.l}</div>
-                    <div style={{ fontSize: 8, color: "#475569" }}>{b.r}</div>
-                  </div>
+    <div style={{ background: "#060d1b", borderRadius: 14, border: "1px solid #1e293b", padding: "20px 22px", marginBottom: 20 }}>
+      <div style={{ fontSize: 8, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 12 }}>
+        Your Exposure Check
+      </div>
+      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14, lineHeight: 1.6 }}>
+        How much are you owed, lending, or about to invoice? We'll assess the risk based on this company's size and financial health.
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: result ? 16 : 0 }}>
+        <div style={{ position: "relative", flex: 1 }}>
+          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#475569", fontWeight: 700 }}>{"\u00A3"}</span>
+          <input
+            type="text"
+            value={amount}
+            onChange={e => { setAmount(e.target.value); setResult(null); }}
+            onKeyDown={handleKey}
+            placeholder="e.g. 5,000"
+            style={{ width: "100%", padding: "10px 12px 10px 28px", background: "#0b1120", border: "1px solid #1e293b", borderRadius: 8, color: "#f1f5f9", fontSize: 14, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, outline: "none", boxSizing: "border-box" }}
+          />
+        </div>
+        <button onClick={calculate}
+          style={{ padding: "10px 20px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
+          Assess Risk
+        </button>
+      </div>
+
+      {result && (
+        <div style={{ background: result.bg, borderRadius: 10, border: "1px solid " + result.border, padding: "16px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 18 }}>{result.icon}</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: result.color, textTransform: "uppercase", letterSpacing: 0.5 }}>{result.headline}</span>
+          </div>
+          <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.7, marginBottom: 12 }}>{result.summary}</div>
+
+          {result.ratios.length > 0 && (
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+              {result.ratios.map((r, i) => (
+                <div key={i} style={{ background: "#0b1120", borderRadius: 6, padding: "6px 10px", border: "1px solid #1e293b" }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#f1f5f9", fontFamily: "'JetBrains Mono', monospace" }}>{r.fmt}</div>
+                  <div style={{ fontSize: 8, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 }}>{r.label}</div>
                 </div>
               ))}
             </div>
-            <p style={{ fontSize: 10, color: "#475569" }}>
-              The confidence indicator reflects how much data was available. Most UK small companies file balance-sheet-only accounts \u2014 scores for these companies are still meaningful but should be treated with more caution than scores based on full accounts.
-            </p>
-          </div>
+          )}
+
+          {result.reasons.map((r, i) => (
+            <div key={i} style={{ fontSize: 11, color: "#94a3b8", padding: "2px 0", lineHeight: 1.6 }}>{"\u2022"} {r}</div>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-/* ═══════════════════════════ LOADING ═══════════════════════════ */
+/* COMPARE PANEL */
+function ComparePanel({ companyA, companyB }) {
+  if (!companyA || !companyB) return null;
+  const a = companyA.assessment, b = companyB.assessment;
+  if (!a || !b) return null;
+  const gradeCol = (g) => g === "A" ? "#10b981" : g === "B" ? "#34d399" : g === "C" ? "#f59e0b" : g === "D" ? "#f97316" : "#ef4444";
+  const fA = companyA.financials?.[0] || {}, fB = companyB.financials?.[0] || {};
+
+  const rows = [
+    { label: "Clearview Score", va: a.clearview_score, vb: b.clearview_score, fmt: v => Math.round(v) },
+    { label: "Financial Health", va: a.pillars.financial_health.score, vb: b.pillars.financial_health.score, fmt: v => Math.round(v) },
+    { label: "Stability", va: a.pillars.stability.score, vb: b.pillars.stability.score, fmt: v => Math.round(v) },
+    { label: "Trend", va: a.pillars.trend.score, vb: b.pillars.trend.score, fmt: v => Math.round(v) },
+    { label: "Net Assets", va: fA.net_assets, vb: fB.net_assets, fmt: fmt },
+    { label: "Cash", va: fA.cash, vb: fB.cash, fmt: fmt },
+    { label: "Total Assets", va: fA.total_assets, vb: fB.total_assets, fmt: fmt },
+  ];
+
+  return (
+    <div style={{ background: "#0b1120", borderRadius: 12, border: "1px solid #1e293b", padding: "16px 20px", marginBottom: 20 }}>
+      <div style={{ fontSize: 8, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 12 }}>Side-by-Side Comparison</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "6px 16px" }}>
+        <div />
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#f1f5f9", marginBottom: 2 }}>{companyA.company_name}</div>
+          <span style={{ fontSize: 16, fontWeight: 800, color: gradeCol(a.rating.grade), fontFamily: "'JetBrains Mono', monospace" }}>{a.rating.grade}</span>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#f1f5f9", marginBottom: 2 }}>{companyB.company_name}</div>
+          <span style={{ fontSize: 16, fontWeight: 800, color: gradeCol(b.rating.grade), fontFamily: "'JetBrains Mono', monospace" }}>{b.rating.grade}</span>
+        </div>
+        {rows.map((r, i) => {
+          const better = r.va != null && r.vb != null && r.va > r.vb;
+          const worse = r.va != null && r.vb != null && r.va < r.vb;
+          return [
+            <div key={i+"l"} style={{ fontSize: 10, color: "#64748b", padding: "4px 0", borderTop: "1px solid #141d2d" }}>{r.label}</div>,
+            <div key={i+"a"} style={{ fontSize: 12, fontWeight: 700, color: better ? "#6ee7b7" : "#f1f5f9", fontFamily: "'JetBrains Mono', monospace", textAlign: "center", padding: "4px 0", borderTop: "1px solid #141d2d" }}>{r.va != null ? r.fmt(r.va) : "\u2014"}</div>,
+            <div key={i+"b"} style={{ fontSize: 12, fontWeight: 700, color: worse ? "#f1f5f9" : better ? "#f1f5f9" : "#6ee7b7", fontFamily: "'JetBrains Mono', monospace", textAlign: "center", padding: "4px 0", borderTop: "1px solid #141d2d" }}>{r.vb != null ? r.fmt(r.vb) : "\u2014"}</div>,
+          ];
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* LOADING */
 function LoadingState() {
   return (<div style={{ textAlign: "center", padding: "60px 20px" }}>
     <div style={{ width: 40, height: 40, border: "3px solid #1e293b", borderTopColor: "#6366f1", borderRadius: "50%", margin: "0 auto 16px", animation: "spin 0.8s linear infinite" }} />
@@ -325,19 +564,68 @@ function LoadingState() {
   </div>);
 }
 
-/* ═══════════════════════════ DASHBOARD ═══════════════════════════ */
-function Dashboard({ company, onBack }) {
+/* HELP PAGE */
+function HelpPage({ onBack }) {
+  const S = ({ children }) => <div style={{ background: "#0b1120", borderRadius: 12, border: "1px solid #1e293b", padding: "20px 24px", marginBottom: 16 }}>{children}</div>;
+  const H = ({ children }) => <div style={{ fontSize: 14, fontWeight: 700, color: "#f1f5f9", marginBottom: 10 }}>{children}</div>;
+  const P = ({ children }) => <p style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.8, marginBottom: 10 }}>{children}</p>;
+  const bands = [
+    { g: "A", l: "Strong", c: "#10b981", r: "80\u2013100", d: "Low risk. Standard credit terms reasonable." },
+    { g: "B", l: "Good", c: "#34d399", r: "65\u201379", d: "Moderate-low risk. Normal business dealings fine." },
+    { g: "C", l: "Fair", c: "#f59e0b", r: "50\u201364", d: "Some concerns. Consider monitoring." },
+    { g: "D", l: "Weak", c: "#f97316", r: "35\u201349", d: "Elevated risk. Consider reduced credit." },
+    { g: "E", l: "Poor", c: "#ef4444", r: "20\u201334", d: "High risk. Upfront payment recommended." },
+    { g: "F", l: "Critical", c: "#dc2626", r: "0\u201319", d: "Very high risk. May be insolvent." },
+  ];
+  return (<div>
+    <button onClick={onBack} className="no-print" style={{ all: "unset", cursor: "pointer", color: "#6366f1", fontSize: 11, fontWeight: 600, marginBottom: 20, display: "flex", alignItems: "center", gap: 4 }}>{"\u2039"} Back</button>
+    <div style={{ marginBottom: 24 }}>
+      <h1 style={{ fontSize: 22, fontWeight: 800, color: "#f1f5f9", marginBottom: 4 }}>How Clearview Works</h1>
+      <p style={{ fontSize: 12, color: "#64748b" }}>Understanding your credit assessment report</p>
+    </div>
+    <S><H>{"\uD83C\uDFAF"} What is Clearview?</H>
+      <P>Clearview gives you an instant credit assessment for any UK company using publicly available Companies House data. It's designed for freelancers and small agencies who need a quick answer to: <strong style={{ color: "#e2e8f0" }}>"Should I extend credit to this company?"</strong></P>
+    </S>
+    <S><H>{"\uD83D\uDCCA"} The Clearview Score (0{"\u2013"}100)</H>
+      <P>Every company gets a score from 0 to 100 and a letter grade from A to F, combining three pillars of analysis:</P>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, margin: "12px 0" }}>
+        {bands.map(b => (<div key={b.g} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", background: "#060a12", borderRadius: 8 }}>
+          <span style={{ fontSize: 20, fontWeight: 800, color: b.c, fontFamily: "'JetBrains Mono', monospace", width: 28 }}>{b.g}</span>
+          <div><div style={{ fontSize: 11, fontWeight: 700, color: "#e2e8f0" }}>{b.l} <span style={{ fontSize: 9, color: "#475569" }}>{b.r}</span></div><div style={{ fontSize: 10, color: "#94a3b8" }}>{b.d}</div></div>
+        </div>))}
+      </div>
+    </S>
+    <S><H>{"\uD83D\uDCCA"} Pillar 1: Financial Health</H>
+      <P>Analyses the balance sheet across up to 4 years of accounts. Checks solvency (do assets exceed liabilities?), liquidity (can they pay bills?), cash position, debt levels, cumulative profitability, and working capital. Recent years are weighted more heavily but the full history is considered.</P>
+    </S>
+    <S><H>{"\uD83C\uDFE2"} Pillar 2: Company Stability</H>
+      <P>Non-financial signals: company age (younger = higher risk), filing behaviour (late filing is a strong predictor of failure), filing downgrades, director turnover, and outstanding secured charges.</P>
+    </S>
+    <S><H>{"\uD83D\uDCC8"} Pillar 3: Year-on-Year Trends</H>
+      <P>Analyses up to 4 years of history. Tracks retained earnings changes (the closest proxy for profit when no P&L is filed), net assets direction, liquidity trends, and cash trajectory. Sustained trends are weighted more heavily than one-off changes.</P>
+    </S>
+    <S><H>{"\u2753"} FAQ</H>
+      {[
+        { q: "Why no revenue/profit for most companies?", a: "95% of UK small companies legally file just a balance sheet. Clearview is designed to work with balance-sheet-only data." },
+        { q: "How does estimated profit work?", a: "Year-on-year change in retained earnings. If retained earnings rose by \u00A350k, the company likely made roughly \u00A350k profit." },
+        { q: "Why do some large companies show no data?", a: "Very large companies (PLCs) often file PDF accounts rather than machine-readable iXBRL. Clearview parses iXBRL used by the majority of small/medium companies." },
+        { q: "How current is the data?", a: "Fetched live from Companies House. Financial data is only as current as the latest filed accounts (up to 9-12 months old for small companies)." },
+        { q: "Is this financial advice?", a: "No. Clearview is an information tool. Always use your own judgment alongside this data." },
+      ].map((item, i) => (<div key={i} style={{ padding: "10px 0", borderBottom: i < 4 ? "1px solid #1e293b" : "none" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0", marginBottom: 3 }}>{item.q}</div>
+        <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.7 }}>{item.a}</div>
+      </div>))}
+    </S>
+  </div>);
+}
+
+/* DASHBOARD */
+function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
   if (!company.financials || !company.financials.length) {
     return (<div style={{ padding: 40, textAlign: "center" }}>
-      <button onClick={onBack} style={{ all: "unset", cursor: "pointer", color: "#6366f1", fontSize: 11, fontWeight: 600, marginBottom: 18, display: "flex", alignItems: "center", gap: 4 }}>{"\u2039"} Back</button>
+      <button onClick={onBack} className="no-print" style={{ all: "unset", cursor: "pointer", color: "#6366f1", fontSize: 11, fontWeight: 600, marginBottom: 18 }}>{"\u2039"} Back</button>
       <div style={{ fontSize: 16, color: "#f1f5f9", fontWeight: 700, marginBottom: 8 }}>{company.company_name}</div>
-      <div style={{ fontSize: 12, color: "#64748b" }}>No parseable financial data found. This company may only file PDF accounts.</div>
-      <div style={{ marginTop: 20, padding: "14px 18px", background: "#0b1120", borderRadius: 10, border: "1px solid #1e293b", textAlign: "left" }}>
-        <div style={{ fontSize: 9, fontWeight: 700, color: "#64748b", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Company Details</div>
-        <div style={{ fontSize: 11, color: "#e2e8f0" }}>{company.company_number} \u00B7 {(company.type||"").toUpperCase()} \u00B7 {company.company_status}</div>
-        <div style={{ fontSize: 10, color: "#475569", marginTop: 2 }}>{(company.sic_codes||[]).join(", ")} \u2014 {company.sic_desc}</div>
-        {company.accounts?.overdue && <div style={{ fontSize: 11, color: "#f87171", fontWeight: 600, marginTop: 6 }}>{"\u26A0"} Accounts overdue</div>}
-      </div>
+      <div style={{ fontSize: 12, color: "#64748b" }}>No parseable financial data found.</div>
     </div>);
   }
 
@@ -345,6 +633,11 @@ function Dashboard({ company, onBack }) {
   const sic = (company.sic_codes || [])[0];
   const est = estimateFinancials(f, sic, prev);
   const [vis, setVis] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [showCompareSearch, setShowCompareSearch] = useState(false);
+  const [compareQ, setCompareQ] = useState("");
+  const [compareResults, setCompareResults] = useState(null);
+  const [compareLoading, setCompareLoading] = useState(false);
   useEffect(() => { requestAnimationFrame(() => setVis(true)); }, []);
 
   const age = company.date_of_creation ? new Date().getFullYear() - new Date(company.date_of_creation).getFullYear() : "?";
@@ -353,26 +646,71 @@ function Dashboard({ company, onBack }) {
   const revFin = [...company.financials].reverse();
   const methodLabel = est.method === "full" ? "Full P&L" : est.method === "partial_pl" ? "Partial P&L" : est.method === "turnover_only" ? "Turnover only" : est.method === "sic_employee_model" ? "SIC estimated" : "Balance sheet only";
 
+  const shareUrl = window.location.origin + "/report/" + company.company_number;
+  const copyLink = () => { navigator.clipboard.writeText(shareUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }); };
+
+  const searchCompare = async () => {
+    if (!compareQ.trim()) return;
+    setCompareLoading(true);
+    try { const resp = await fetch("/api/search?q="+encodeURIComponent(compareQ)); const data = await resp.json(); setCompareResults(data.items || []); }
+    catch(e) {}
+    setCompareLoading(false);
+  };
+
   return (<div style={{ opacity: vis ? 1 : 0, transform: vis ? "none" : "translateY(14px)", transition: "all 0.45s cubic-bezier(0.4,0,0.2,1)" }}>
-    <button onClick={onBack} style={{ all: "unset", cursor: "pointer", color: "#6366f1", fontSize: 11, fontWeight: 600, marginBottom: 16, display: "flex", alignItems: "center", gap: 4 }}>{"\u2039"} Back to search</button>
+    {/* Print header */}
+    <div className="print-only" style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 10, color: "#666" }}>Clearview Credit Report {"\u00B7"} Generated {new Date().toLocaleDateString()}</div>
+    </div>
+
+    <button onClick={onBack} className="no-print" style={{ all: "unset", cursor: "pointer", color: "#6366f1", fontSize: 11, fontWeight: 600, marginBottom: 16, display: "flex", alignItems: "center", gap: 4 }}>{"\u2039"} Back to search</button>
 
     <div style={{ marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: "#f1f5f9", margin: 0 }}>{company.company_name}</h1>
-        <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: company.company_status === "active" ? "#064e3b" : "#7f1d1d", color: company.company_status === "active" ? "#6ee7b7" : "#fca5a5", textTransform: "uppercase", letterSpacing: 0.5 }}>{company.company_status}</span>
+        <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: company.company_status === "active" ? "#064e3b" : "#7f1d1d", color: company.company_status === "active" ? "#6ee7b7" : "#fca5a5", textTransform: "uppercase" }}>{company.company_status}</span>
         <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: "#1e1b4b", color: "#a5b4fc", border: "1px solid #312e81" }}>{methodLabel}</span>
       </div>
       <div style={{ fontSize: 11, color: "#94a3b8" }}>{company.company_number} {"\u00B7"} {(company.type || "").toUpperCase()} {"\u00B7"} {age}yr {"\u00B7"} {addrStr}</div>
       <div style={{ fontSize: 10, color: "#475569", marginTop: 1 }}>SIC {sic} {"\u2014"} {company.sic_desc}</div>
     </div>
 
-    <AssessmentPanel assessment={company.assessment} companyName={company.company_name} />
-    <ScoreExplainer />
+    {/* Action buttons */}
+    <div className="no-print" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+      <button onClick={() => window.print()} style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700, background: "#1e1b4b", color: "#a5b4fc", border: "1px solid #312e81", borderRadius: 6, cursor: "pointer" }}>{"\uD83D\uDCC4"} Download PDF</button>
+      <button onClick={copyLink} style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700, background: "#1e1b4b", color: "#a5b4fc", border: "1px solid #312e81", borderRadius: 6, cursor: "pointer" }}>{copied ? "\u2713 Copied!" : "\uD83D\uDD17 Share Link"}</button>
+      <button onClick={() => setShowCompareSearch(!showCompareSearch)} style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700, background: "#1e1b4b", color: "#a5b4fc", border: "1px solid #312e81", borderRadius: 6, cursor: "pointer" }}>{"\u2194"} Compare</button>
+    </div>
+
+    {/* Compare search */}
+    {showCompareSearch && !compareWith && (
+      <div className="no-print" style={{ background: "#0b1120", borderRadius: 10, border: "1px solid #1e293b", padding: "14px 18px", marginBottom: 16 }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Compare with another company</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          <input type="text" value={compareQ} onChange={e => setCompareQ(e.target.value)} onKeyDown={e => e.key === "Enter" && searchCompare()}
+            placeholder="Search company..." style={{ flex: 1, padding: "8px 12px", fontSize: 12, background: "#060a12", border: "1px solid #1e293b", borderRadius: 6, color: "#f1f5f9", fontFamily: "'DM Sans', sans-serif" }} />
+          <button onClick={searchCompare} disabled={compareLoading} style={{ padding: "8px 14px", fontSize: 11, fontWeight: 700, background: "linear-gradient(135deg, #0ea5e9, #6366f1)", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>{compareLoading ? "..." : "Find"}</button>
+        </div>
+        {compareResults && compareResults.map(r => (
+          <button key={r.company_number} onClick={() => { setShowCompareSearch(false); onCompare(r.company_number); }}
+            style={{ display: "block", width: "100%", padding: "6px 10px", background: "transparent", border: "1px solid #1e293b", borderRadius: 5, cursor: "pointer", textAlign: "left", marginBottom: 3, color: "#e2e8f0", fontFamily: "'DM Sans', sans-serif", fontSize: 11 }}>
+            <span style={{ fontWeight: 600 }}>{r.company_name}</span> <span style={{ color: "#475569" }}>{r.company_number}</span>
+          </button>
+        ))}
+      </div>
+    )}
+
+    {/* Compare panel */}
+    {compareWith && <ComparePanel companyA={company} companyB={compareWith} />}
+
+    <AssessmentPanel assessment={company.assessment} companyName={company.company_name} onHelp={onHelp} />
+    <ExposureCalculator assessment={company.assessment} financials={company.financials} companyName={company.company_name} />
+    <BenchmarkPanel company={company} />
     <DataBar est={est} accountType={company.accounts?.last_accounts?.type || "unknown"} />
 
     <div style={{ fontSize: 8, fontWeight: 700, color: "#64748b", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 5 }}>Filed Financials {"\u00B7"} {f.year}</div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(125px, 1fr))", gap: 5, marginBottom: 18 }}>
-      <Stat label="Turnover" value={fmt(f.turnover)} sub={f.turnover && prev?.turnover ? pf(((f.turnover-prev.turnover)/prev.turnover)*100)+" YoY" : null} />
+      <Stat label="Turnover" value={fmt(f.turnover)} />
       <Stat label="Net Assets" value={fmt(f.net_assets)} alert={f.net_assets != null && f.net_assets < 0} sub={prev?.net_assets != null ? pf(((f.net_assets-prev.net_assets)/(Math.abs(prev.net_assets)||1))*100)+" YoY" : null} />
       <Stat label="Cash" value={fmt(f.cash)} />
       <Stat label="Current Assets" value={fmt(f.current_assets)} />
@@ -405,10 +743,32 @@ function Dashboard({ company, onBack }) {
         <div style={{ fontSize: 8, fontWeight: 700, color: "#64748b", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>Ownership & Charges</div>
         {(company.psc || []).map((p, i) => <div key={i} style={{ fontSize: 11, color: "#e2e8f0", padding: "3px 0" }}>{p.name || p.kind}{p.ownership && <span style={{ color: "#475569" }}> {"\u00B7"} {p.ownership}</span>}</div>)}
         <div style={{ borderTop: "1px solid #141d2d", marginTop: 6, paddingTop: 6, fontSize: 10, color: "#94a3b8" }}>
-          <span style={{ fontWeight: 700 }}>{company.charges?.outstanding || 0}</span> outstanding charges {"\u00B7"} {company.charges?.satisfied || 0} satisfied
+          <span style={{ fontWeight: 700 }}>{company.charges?.outstanding || 0}</span> outstanding {"\u00B7"} {company.charges?.satisfied || 0} satisfied
         </div>
       </div>
     </div>
+
+    {/* Insolvency Details */}
+    {(company.insolvency?.cases?.length > 0 || company.gazette_notices?.length > 0) && (
+      <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #7f1d1d", padding: "12px 16px", marginBottom: 18 }}>
+        <div style={{ fontSize: 8, fontWeight: 700, color: "#f87171", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>Insolvency &amp; Legal</div>
+        {(company.insolvency?.cases || []).map((c, i) => (
+          <div key={i} style={{ padding: "6px 0", borderBottom: i < company.insolvency.cases.length - 1 ? "1px solid #1c1111" : "none" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#fca5a5" }}>{c.type?.replace(/-/g, " ").replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}</div>
+            {c.dates?.map((d, j) => <div key={j} style={{ fontSize: 9, color: "#94a3b8" }}>{d.type?.replace(/-/g, " ")}: {d.date}</div>)}
+            {c.practitioners?.map((p, j) => <div key={j} style={{ fontSize: 9, color: "#475569" }}>{p.role}: {p.name}</div>)}
+          </div>
+        ))}
+        {(company.gazette_notices || []).length > 0 && (
+          <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #1c1111" }}>
+            <div style={{ fontSize: 9, fontWeight: 600, color: "#fdba74", marginBottom: 4 }}>Gazette Notices</div>
+            {company.gazette_notices.map((n, i) => (
+              <div key={i} style={{ fontSize: 9, color: "#94a3b8", padding: "2px 0" }}>{n.title} {n.date && <span style={{ color: "#475569" }}>({n.date})</span>}</div>
+            ))}
+          </div>
+        )}
+      </div>
+    )}
 
     <div style={{ textAlign: "center", fontSize: 9, color: "#1e293b", paddingTop: 12, borderTop: "1px solid #141d2d" }}>
       Companies House {"\u00B7"} {company.accounts?.last_accounts?.type} accounts {"\u00B7"} {company.accounts?.last_accounts?.made_up_to} {"\u00B7"} Not financial advice {"\u00B7"} Clearview v1.0
@@ -416,13 +776,24 @@ function Dashboard({ company, onBack }) {
   </div>);
 }
 
-/* ═══════════════════════════ APP ═══════════════════════════ */
+/* APP */
 function App() {
-  const [q, setQ] = useState(""); const [results, setResults] = useState(null); const [selected, setSelected] = useState(null);
+  const [page, setPage] = useState("search");
+  const [q, setQ] = useState(""); const [results, setResults] = useState(null);
+  const [selected, setSelected] = useState(null); const [compareWith, setCompareWith] = useState(null);
   const [loading, setLoading] = useState(false); const [loadingCompany, setLoadingCompany] = useState(false);
   const [error, setError] = useState(null);
+  const [history, setHistory] = useState([]);
   const ref = useRef(null);
-  useEffect(() => { if (!selected && !loadingCompany) ref.current?.focus(); }, [selected, loadingCompany]);
+
+  // Share link support: check URL on load
+  useEffect(() => {
+    const path = window.location.pathname;
+    const match = path.match(/^\/report\/([A-Za-z0-9]+)/);
+    if (match) { loadCompany(match[1]); }
+  }, []);
+
+  useEffect(() => { if (page === "search" && !loadingCompany) ref.current?.focus(); }, [page, loadingCompany]);
 
   const search = async (v) => {
     const query = (v || q).trim(); if (!query) return;
@@ -432,21 +803,59 @@ function App() {
     setLoading(false);
   };
 
-  const selectCompany = async (number) => {
-    setLoadingCompany(true); setError(null);
-    try { const resp = await fetch("/api/company/"+number); if (!resp.ok) throw new Error("API returned "+resp.status); const data = await resp.json(); setSelected(data); }
+  const loadCompany = async (number) => {
+    setLoadingCompany(true); setError(null); setCompareWith(null);
+    try {
+      const resp = await fetch("/api/company/"+number);
+      if (!resp.ok) throw new Error("API returned "+resp.status);
+      const data = await resp.json();
+      setSelected(data);
+      setPage("dashboard");
+      // Update URL without reload
+      window.history.replaceState(null, "", "/report/"+number);
+      // Add to history (avoid duplicates)
+      setHistory(prev => {
+        const filtered = prev.filter(h => h.company_number !== data.company_number);
+        return [{ company_number: data.company_number, company_name: data.company_name, grade: data.assessment?.rating?.grade, score: data.assessment?.clearview_score }, ...filtered].slice(0, 10);
+      });
+    }
     catch (e) { setError(e.message); }
     setLoadingCompany(false);
   };
 
+  const loadCompare = async (number) => {
+    try {
+      const resp = await fetch("/api/company/"+number);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      setCompareWith(data);
+    } catch(e) {}
+  };
+
+  const goHelp = () => { setPage("help"); window.scrollTo(0,0); };
+  const goSearch = () => { setSelected(null); setCompareWith(null); setPage("search"); window.history.replaceState(null, "", "/"); };
+
+  const gradeCol = (g) => g === "A" ? "#10b981" : g === "B" ? "#34d399" : g === "C" ? "#f59e0b" : g === "D" ? "#f97316" : g === "E" ? "#ef4444" : "#dc2626";
+
+  const Nav = () => (
+    <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, paddingBottom: 12, borderBottom: "1px solid #0f172a" }}>
+      <button onClick={goSearch} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 7 }}>
+        <div style={{ width: 22, height: 22, borderRadius: 4, background: "linear-gradient(135deg, #0ea5e9, #6366f1)", display: "flex", alignItems: "center", justifyContent: "center" }}><span style={{ fontSize: 10, fontWeight: 800, color: "#fff" }}>C</span></div>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#f1f5f9" }}>Clearview</span>
+      </button>
+      <button onClick={goHelp} style={{ all: "unset", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366f1", padding: "4px 10px", borderRadius: 6, border: "1px solid #2e1065" }}>
+        {"\u2753"} How it works
+      </button>
+    </div>
+  );
+
   return (<div style={{ minHeight: "100vh", background: "#060a12", fontFamily: "'DM Sans', sans-serif", color: "#e2e8f0" }}>
-    <div style={{ maxWidth: 860, margin: "0 auto", padding: "30px 24px" }}>
-      {loadingCompany ? <LoadingState /> : selected ? <Dashboard company={selected} onBack={() => setSelected(null)} /> : (<>
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
-            <div style={{ width: 24, height: 24, borderRadius: 5, background: "linear-gradient(135deg, #0ea5e9, #6366f1)", display: "flex", alignItems: "center", justifyContent: "center" }}><span style={{ fontSize: 11, fontWeight: 800, color: "#fff" }}>C</span></div>
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9" }}>Clearview</span>
-          </div>
+    <div style={{ maxWidth: 860, margin: "0 auto", padding: "20px 24px" }}>
+      <Nav />
+      {page === "help" ? <HelpPage onBack={goSearch} /> :
+       loadingCompany ? <LoadingState /> :
+       page === "dashboard" && selected ? <Dashboard company={selected} onBack={goSearch} onHelp={goHelp} onCompare={loadCompare} compareWith={compareWith} /> : (<>
+        <div style={{ textAlign: "center", marginBottom: 28, marginTop: 10 }}>
           <h1 style={{ fontSize: 24, fontWeight: 800, color: "#f1f5f9", margin: "0 0 4px", letterSpacing: -0.5 }}>Should you do business with them?</h1>
           <p style={{ fontSize: 11, color: "#64748b", maxWidth: 520, margin: "0 auto", lineHeight: 1.5 }}>Instant credit assessment for any UK company. Search by name or number.</p>
         </div>
@@ -459,24 +868,51 @@ function App() {
 
         {error && <div style={{ padding: "10px 14px", background: "#450a0a", borderRadius: 8, border: "1px solid #7f1d1d", marginBottom: 16, fontSize: 11, color: "#fca5a5" }}>Error: {error}</div>}
 
+        {/* Search History */}
+        {history.length > 0 && !results && (
+          <div style={{ marginBottom: 20, padding: "14px 18px", background: "#0b1120", borderRadius: 10, border: "1px solid #1e293b" }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: "#64748b", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Recent Searches</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {history.map(h => (
+                <button key={h.company_number} onClick={() => loadCompany(h.company_number)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", background: "#060a12", border: "1px solid #1e293b", borderRadius: 6, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", color: "#e2e8f0" }}>
+                  {h.grade && <span style={{ fontSize: 10, fontWeight: 800, color: gradeCol(h.grade), fontFamily: "'JetBrains Mono', monospace" }}>{h.grade}</span>}
+                  <span style={{ fontSize: 11, fontWeight: 600 }}>{h.company_name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {results && (<div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
           <div style={{ fontSize: 10, color: "#475569" }}>{results.length} result{results.length !== 1 ? "s" : ""}</div>
           {!results.length && <div style={{ textAlign: "center", padding: 30, color: "#334155", fontSize: 11 }}>No companies found</div>}
-          {results.map(r => (<button key={r.company_number} onClick={() => selectCompany(r.company_number)}
+          {results.map(r => (<button key={r.company_number} onClick={() => loadCompany(r.company_number)}
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "11px 15px", background: "#0b1120", borderRadius: 10, border: "1px solid #1e293b", cursor: "pointer", textAlign: "left", fontFamily: "'DM Sans', sans-serif", color: "#e2e8f0", transition: "border-color 0.15s" }}
             onMouseEnter={e => e.currentTarget.style.borderColor = "#334155"} onMouseLeave={e => e.currentTarget.style.borderColor = "#1e293b"}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#f1f5f9" }}>{r.company_name}</div>
-              <div style={{ fontSize: 10, color: "#475569", marginTop: 1 }}>{r.company_number} {"\u00B7"} {(r.type || "").toUpperCase()} {"\u00B7"} {r.address_snippet || r.locality}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <TrafficLight status={r.company_status} dateOfCreation={r.date_of_creation} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#f1f5f9" }}>{r.company_name}</div>
+                <div style={{ fontSize: 10, color: "#475569", marginTop: 1 }}>{r.company_number} {"\u00B7"} {(r.type || "").toUpperCase()} {"\u00B7"} {r.address_snippet || r.locality}</div>
+              </div>
             </div>
             <div style={{ fontSize: 8, fontWeight: 700, padding: "3px 8px", borderRadius: 5, background: r.company_status === "active" ? "#064e3b" : r.company_status === "dissolved" ? "#7f1d1d" : "#451a03", color: r.company_status === "active" ? "#6ee7b7" : r.company_status === "dissolved" ? "#fca5a5" : "#fdba74", textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap" }}>{r.company_status}</div>
           </button>))}
         </div>)}
 
-        {!results && (<div style={{ marginTop: 32, padding: "20px 24px", background: "#0b1120", borderRadius: 12, border: "1px solid #1e293b" }}>
+        {!results && !history.length && (<div style={{ marginTop: 32, padding: "20px 24px", background: "#0b1120", borderRadius: 12, border: "1px solid #1e293b" }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>Try searching for</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {["Greggs", "BrewDog", "Tesco", "Deliveroo", "Monzo", "WeWork", "08234567"].map(n => (<button key={n} onClick={() => { setQ(n); search(n); }}
+              style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: "transparent", color: "#6366f1", border: "1px solid #2e1065", borderRadius: 6, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>{n}</button>))}
+          </div>
+        </div>)}
+
+        {!results && history.length > 0 && (<div style={{ marginTop: 16, padding: "20px 24px", background: "#0b1120", borderRadius: 12, border: "1px solid #1e293b" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 }}>Try searching for</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {["Greggs", "BrewDog", "Tesco", "Deliveroo", "Monzo", "WeWork"].map(n => (<button key={n} onClick={() => { setQ(n); search(n); }}
               style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, background: "transparent", color: "#6366f1", border: "1px solid #2e1065", borderRadius: 6, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>{n}</button>))}
           </div>
         </div>)}

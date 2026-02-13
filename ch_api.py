@@ -77,6 +77,58 @@ class CompaniesHouseClient:
             return {"total_count": 0, "satisfied_count": 0, "part_satisfied_count": 0, "unfiltered_count": 0, "items": []}
         return data
 
+    def get_insolvency(self, number):
+        """Get insolvency cases from Companies House API (free endpoint)."""
+        try:
+            data = self._get(f"{BASE}/company/{number}/insolvency")
+            if not data:
+                return {"cases": [], "status": None}
+            return data
+        except Exception as e:
+            print(f"[CH API] Insolvency lookup failed for {number}: {e}")
+            return {"cases": [], "status": None}
+
+    def get_gazette_notices(self, company_name, company_number):
+        """Search The Gazette for insolvency notices about a company.
+        Best-effort — fails silently if Gazette API is unavailable.
+        Returns list of notice summaries.
+        """
+        notices = []
+        try:
+            # Try the JSON feed endpoint
+            url = "https://www.thegazette.co.uk/all-notices/notice/data.json"
+            params = {
+                "text": f'"{company_name}"',
+                "categorycode": "G206000000",  # Corporate insolvency
+                "results-page-size": 5,
+            }
+            self._rate_limit()
+            resp = requests.get(url, params=params, timeout=8, headers={
+                "Accept": "application/json",
+                "User-Agent": "Clearview/1.0"
+            })
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                    entries = data.get("entry", [])
+                    if isinstance(entries, dict):
+                        entries = [entries]
+                    for r in entries[:5]:
+                        title = r.get("title", "Insolvency notice")
+                        if isinstance(title, dict):
+                            title = title.get("#text", str(title))
+                        pub_date = r.get("published", r.get("updated", ""))
+                        notices.append({
+                            "title": str(title)[:120],
+                            "date": str(pub_date)[:10] if pub_date else "",
+                            "url": "",
+                        })
+                except (ValueError, KeyError, TypeError):
+                    pass
+        except Exception as e:
+            print(f"[Gazette] Search failed for {company_number}: {e}")
+        return notices
+
     def get_filing_history(self, number, category=None, items_per_page=25):
         params = {"items_per_page": items_per_page}
         if category:
@@ -94,25 +146,25 @@ class CompaniesHouseClient:
     def get_document_content(self, document_metadata_url):
         """Download iXBRL/XHTML document content.
 
-        Flow:
-        1. GET metadata from frontend-doc-api → get available formats + content URL
-        2. GET content URL with Accept header → 302 redirect to S3
-        3. Follow redirect → download actual file
+        Filing history gives URLs on document-api.company-information.service.gov.uk
+        but metadata must be fetched from frontend-doc-api.company-information.service.gov.uk
         """
-        # Build the metadata URL
+        # Rewrite the URL to use the correct domain for metadata
         meta_url = document_metadata_url
+        meta_url = meta_url.replace(
+            "https://document-api.company-information.service.gov.uk",
+            "https://frontend-doc-api.company-information.service.gov.uk"
+        )
         if meta_url.startswith("/"):
-            meta_url = f"{FRONTEND_DOC_API}{meta_url}"
-        elif not meta_url.startswith("http"):
-            meta_url = f"{FRONTEND_DOC_API}/document/{meta_url}"
+            meta_url = f"https://frontend-doc-api.company-information.service.gov.uk{meta_url}"
 
-        print(f"    [doc] Fetching metadata: {meta_url[:80]}...")
+        print(f"    [doc] Fetching metadata: {meta_url[:90]}...")
         self._rate_limit()
 
         try:
-            resp = self._doc_session.get(meta_url, headers={"Accept": "application/json"})
+            resp = self._doc_session.get(meta_url, headers={"Accept": "application/json"}, timeout=15)
+            print(f"    [doc] Metadata response: HTTP {resp.status_code}")
             if resp.status_code != 200:
-                print(f"    [doc] Metadata failed: HTTP {resp.status_code}")
                 return None, None
             meta = resp.json()
         except Exception as e:
@@ -123,20 +175,14 @@ class CompaniesHouseClient:
         print(f"    [doc] Available formats: {list(resources.keys())}")
 
         # Check if iXBRL is available
-        has_ixbrl = "application/xhtml+xml" in resources
-        if not has_ixbrl:
-            print(f"    [doc] No iXBRL format available (PDF only?)")
+        if "application/xhtml+xml" not in resources:
+            print(f"    [doc] No iXBRL available (PDF only)")
             return None, None
 
-        # Get the content URL
-        content_url = meta.get("links", {}).get("document", "")
-        if not content_url:
-            print(f"    [doc] No document link in metadata")
-            return None, None
-
-        # Ensure it's a full URL with /content appended
-        if content_url.startswith("/"):
-            content_url = f"{DOC_API}{content_url}"
+        # Content URL: use the self link + /content
+        content_url = meta.get("links", {}).get("self", meta_url)
+        if not content_url.startswith("http"):
+            content_url = f"https://frontend-doc-api.company-information.service.gov.uk{content_url}"
         if not content_url.endswith("/content"):
             content_url = content_url.rstrip("/") + "/content"
 
@@ -231,6 +277,12 @@ def build_company_data(client, number):
     psc_raw = client.get_psc(number)
     charges_raw = client.get_charges(number)
     accounts_filings = client.get_accounts_filings(number, count=5)
+    insolvency_raw = client.get_insolvency(number)
+    try:
+        gazette_notices = client.get_gazette_notices(profile.get("company_name", ""), number)
+    except Exception as e:
+        print(f"[Gazette] Failed: {e}")
+        gazette_notices = []
 
     # ── Profile ──
     addr = profile.get("registered_office_address", {})
@@ -314,6 +366,30 @@ def build_company_data(client, number):
     elif "full" in acc_type or "group" in acc_type:
         acc_type = "full"
 
+    # ── Insolvency ──
+    insolvency_cases = []
+    has_active = False
+    try:
+        raw_cases = insolvency_raw.get("cases", [])
+        if isinstance(raw_cases, list):
+            for case in raw_cases:
+                if not isinstance(case, dict):
+                    continue
+                dates = case.get("dates", []) or []
+                practitioners = case.get("practitioners", []) or []
+                insolvency_cases.append({
+                    "type": case.get("type", "unknown"),
+                    "number": case.get("number"),
+                    "dates": [{"date": d.get("date"), "type": d.get("type")} for d in dates if isinstance(d, dict)],
+                    "practitioners": [{"name": p.get("name"), "role": p.get("role")} for p in practitioners[:2] if isinstance(p, dict)],
+                    "notes": case.get("notes", []),
+                })
+            if insolvency_cases:
+                has_active = insolvency_raw.get("status") not in (None, "closed", "discharged")
+    except Exception as e:
+        print(f"[Insolvency] Parse error: {e}")
+        insolvency_cases = []
+
     return {
         "company_name": profile.get("company_name", ""),
         "company_number": number,
@@ -340,7 +416,13 @@ def build_company_data(client, number):
             "satisfied": satisfied,
             "outstanding": outstanding,
         },
+        "insolvency": {
+            "cases": insolvency_cases,
+            "status": insolvency_raw.get("status"),
+            "has_active_case": has_active,
+        },
+        "gazette_notices": gazette_notices,
         "filing_history_types": filing_types,
-        "accounts_filings": accounts_filings,  # raw filings for document parsing
-        "financials": [],  # populated by accounts parser
+        "accounts_filings": accounts_filings,
+        "financials": [],
     }
