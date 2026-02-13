@@ -291,97 +291,132 @@ function calcExposureRisk(val, assessment, financials, distressPrediction) {
   const score = assessment.clearview_score || 50;
   const insolvency = assessment.insolvency || {};
   const reasons = [];
-  let riskLevel = "low";
 
   if (insolvency.active) {
-    return { level: "do_not_lend", color: "#ef4444", bg: "#450a0a", border: "#991b1b", icon: "\u26D4", headline: "Do not extend credit",
+    return { paymentPct: 5, color: "#ef4444", bg: "#450a0a", border: "#991b1b",
+      headline: "Do not extend credit",
       summary: "This company has an active insolvency proceeding. Any credit extended is at serious risk of total loss.",
-      reasons: ["Active insolvency proceeding"], ratios: [] };
+      reasons: ["Active insolvency proceeding"], ratios: [], level: "do_not_lend" };
   }
 
+  // ── 1. Base solvency: chance they stay trading ──
+  let solvencyPct = 98; // default ~2% failure rate
+  if (distressPrediction && distressPrediction.probability_pct != null) {
+    solvencyPct = 100 - distressPrediction.probability_pct;
+    // Add distress factors to reasons
+    const dpFactors = distressPrediction.factors || [];
+    dpFactors.forEach(f => {
+      if (f[1] === "major_risk" || f[1] === "critical") reasons.push(f[0]);
+      else if (f[1] === "increases_risk") reasons.push(f[0]);
+    });
+  } else {
+    // Estimate from score alone
+    if (score < 30) solvencyPct = 80;
+    else if (score < 45) solvencyPct = 90;
+    else if (score < 60) solvencyPct = 95;
+    else solvencyPct = 98;
+  }
+
+  // ── 2. Exposure: chance they pay THIS amount given they survive ──
   const ratios = [];
   const na = f.net_assets, cash = f.cash, ca = f.current_assets, turnover = f.turnover;
-  let naRatio = null, cashRatio = null, caRatio = null, turnRatio = null;
+  let naRatio = null, cashRatio = null, turnRatio = null;
 
   if (na != null && na > 0) { naRatio = (val / na) * 100; ratios.push({ label: "of net assets", value: naRatio, fmt: naRatio.toFixed(1) + "%" }); }
   if (cash != null && cash > 0) { cashRatio = (val / cash) * 100; ratios.push({ label: "of cash", value: cashRatio, fmt: cashRatio.toFixed(1) + "%" }); }
-  if (ca != null && ca > 0) { caRatio = (val / ca) * 100; ratios.push({ label: "of current assets", value: caRatio, fmt: caRatio.toFixed(1) + "%" }); }
+  if (ca != null && ca > 0) { const caRatio = (val / ca) * 100; ratios.push({ label: "of current assets", value: caRatio, fmt: caRatio.toFixed(1) + "%" }); }
   if (turnover != null && turnover > 0) { turnRatio = (val / turnover) * 100; ratios.push({ label: "of turnover", value: turnRatio, fmt: turnRatio.toFixed(1) + "%" }); }
 
-  // Add distress probability as a ratio chip if available
-  if (distressPrediction && distressPrediction.probability_pct != null) {
-    ratios.push({ label: "distress probability", value: distressPrediction.probability_pct, fmt: distressPrediction.probability_pct + "%" });
-  }
+  let exposurePct = 99; // chance of payment given company is solvent
 
   if (naRatio != null) {
-    if (naRatio <= 1) { reasons.push("\u00A3" + val.toLocaleString() + " is tiny relative to their net assets (" + naRatio.toFixed(1) + "%) \u2014 very low exposure"); }
-    else if (naRatio <= 5) { reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 modest exposure"); }
-    else if (naRatio <= 15) { reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 meaningful exposure"); riskLevel = "medium"; }
-    else if (naRatio <= 40) { reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 significant exposure"); riskLevel = "high"; }
-    else { reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 very large exposure"); riskLevel = "very_high"; }
-  } else if (na != null && na <= 0) { reasons.push("Company has negative or zero net assets \u2014 no asset backing"); riskLevel = "very_high"; }
-
-  if (cashRatio != null) {
-    if (cashRatio <= 50) reasons.push("Could cover this from cash alone");
-    else if (cashRatio <= 200) { reasons.push("Would use " + cashRatio.toFixed(0) + "% of their cash reserves"); if (riskLevel === "low") riskLevel = "medium"; }
-    else { reasons.push("Exceeds cash reserves by " + (cashRatio / 100).toFixed(1) + "x"); if (riskLevel !== "very_high") riskLevel = "high"; }
+    if (naRatio <= 1) { exposurePct = 99; reasons.push("\u00A3" + val.toLocaleString() + " is tiny relative to their net assets (" + naRatio.toFixed(1) + "%)"); }
+    else if (naRatio <= 5) { exposurePct = 97; reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 modest exposure"); }
+    else if (naRatio <= 15) { exposurePct = 92; reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 meaningful exposure"); }
+    else if (naRatio <= 40) { exposurePct = 80; reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 significant exposure"); }
+    else { exposurePct = 60; reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 very large relative to company"); }
+  } else if (na != null && na <= 0) {
+    exposurePct = 45;
+    reasons.push("Company has negative or zero net assets \u2014 no asset backing");
   }
 
+  // Cash modifier
+  if (cashRatio != null) {
+    if (cashRatio <= 50) { exposurePct = Math.min(exposurePct + 1, 99); reasons.push("Could cover this from cash alone"); }
+    else if (cashRatio > 200) { exposurePct -= 8; reasons.push("Exceeds cash reserves by " + (cashRatio / 100).toFixed(1) + "x"); }
+  }
+
+  // Turnover context
   if (turnRatio != null) {
     if (turnRatio <= 0.5) reasons.push("Less than 1 day\u2019s revenue");
     else if (turnRatio <= 2) reasons.push("Roughly " + Math.max(1, Math.round(turnRatio * 3.65)) + " days\u2019 revenue");
-    else if (turnRatio > 10) { reasons.push("Equivalent to " + Math.round(turnRatio * 3.65) + " days\u2019 revenue \u2014 substantial"); if (riskLevel === "low") riskLevel = "medium"; }
+    else if (turnRatio > 10) { exposurePct -= 5; reasons.push("Equivalent to " + Math.round(turnRatio * 3.65) + " days\u2019 revenue \u2014 substantial"); }
   }
 
+  // Dividends
   const divs = f.dividends_paid;
   if (divs != null && divs > 0) {
     if (val <= divs * 0.5) reasons.push("Company paid \u00A3" + divs.toLocaleString() + " in dividends \u2014 your exposure is well within distributable profits");
-    else if (val <= divs * 2) reasons.push("Company paid \u00A3" + divs.toLocaleString() + " in dividends \u2014 comparable to your exposure");
-    else reasons.push("Company paid \u00A3" + divs.toLocaleString() + " in dividends \u2014 your exposure significantly exceeds this");
+    else if (val > divs * 2) reasons.push("Your exposure significantly exceeds last year\u2019s dividends of \u00A3" + divs.toLocaleString());
   }
 
-  if (score < 30) { if (riskLevel === "low") riskLevel = "high"; else if (riskLevel === "medium") riskLevel = "very_high"; reasons.push("Very low credit score (" + Math.round(score) + "/100) \u2014 elevated default risk"); }
-  else if (score < 45) { if (riskLevel === "low") riskLevel = "medium"; else if (riskLevel === "medium") riskLevel = "high"; reasons.push("Below-average credit score (" + Math.round(score) + "/100)"); }
-  else if (score >= 75) { reasons.push("Strong credit score (" + Math.round(score) + "/100)"); }
+  // Score modifiers
+  if (score >= 75) { exposurePct = Math.min(exposurePct + 2, 99); reasons.push("Strong credit score (" + Math.round(score) + "/100)"); }
+  else if (score < 30) { exposurePct -= 10; reasons.push("Very low credit score (" + Math.round(score) + "/100)"); }
+  else if (score < 45) { exposurePct -= 5; reasons.push("Below-average credit score (" + Math.round(score) + "/100)"); }
 
-  if (insolvency.cases > 0) { if (riskLevel === "low") riskLevel = "medium"; else if (riskLevel === "medium") riskLevel = "high"; reasons.push("Past insolvency history"); }
+  // Past insolvency
+  if (insolvency.cases > 0) { exposurePct -= 8; reasons.push("Past insolvency history"); }
 
-  // Distress prediction modifier
-  if (distressPrediction && distressPrediction.probability_pct != null) {
-    const dp = distressPrediction.probability_pct;
-    if (dp >= 20) {
-      if (riskLevel === "low") riskLevel = "high";
-      else if (riskLevel === "medium") riskLevel = "very_high";
-      reasons.push("Distress probability " + dp + "% \u2014 elevated failure risk");
-    } else if (dp >= 10) {
-      if (riskLevel === "low") riskLevel = "medium";
-      else if (riskLevel === "medium") riskLevel = "high";
-      reasons.push("Distress probability " + dp + "% \u2014 above average failure risk");
-    } else if (dp < 3) {
-      reasons.push("Low distress probability (" + dp + "%) \u2014 statistically stable");
-    }
+  // No financial data
+  if (naRatio == null && cashRatio == null && turnRatio == null) {
+    exposurePct = 85; // uncertain
+    reasons.push("Limited financial data \u2014 cannot fully assess exposure");
   }
 
-  if (naRatio == null && cashRatio == null && caRatio == null && turnRatio == null) {
-    reasons.push("Limited financial data \u2014 cannot assess exposure relative to company size");
-    riskLevel = score >= 50 ? "medium" : "high";
+  // Clamp
+  exposurePct = Math.max(20, Math.min(99, exposurePct));
+
+  // ── 3. Combined: P(payment) = P(solvent) × P(paid|solvent) ──
+  const paymentPct = Math.round((solvencyPct / 100) * (exposurePct / 100) * 100);
+
+  // Colour based on combined probability
+  let color, bg, border;
+  if (paymentPct >= 90) { color = "#10b981"; bg = "#052e16"; border = "#065f46"; }
+  else if (paymentPct >= 75) { color = "#34d399"; bg = "#052e16"; border = "#065f46"; }
+  else if (paymentPct >= 60) { color = "#f59e0b"; bg = "#1c1507"; border = "#854d0e"; }
+  else if (paymentPct >= 40) { color = "#f97316"; bg = "#1a0f00"; border = "#9a3412"; }
+  else { color = "#ef4444"; bg = "#1a0505"; border = "#991b1b"; }
+
+  let headline, summary;
+  if (paymentPct >= 90) {
+    headline = "Very likely to be paid";
+    summary = "\u00A3" + val.toLocaleString() + " is a comfortable exposure for a company of this size and health. Standard credit terms are reasonable.";
+  } else if (paymentPct >= 75) {
+    headline = "Likely to be paid";
+    summary = "\u00A3" + val.toLocaleString() + " is a manageable exposure. Consider monitoring payment behaviour.";
+  } else if (paymentPct >= 60) {
+    headline = "Payment uncertain";
+    summary = "\u00A3" + val.toLocaleString() + " carries meaningful risk. Consider shorter payment terms, deposits, or staged payments.";
+  } else if (paymentPct >= 40) {
+    headline = "Payment at risk";
+    summary = "\u00A3" + val.toLocaleString() + " is a high-risk exposure. Strongly consider upfront payment, personal guarantees, or credit insurance.";
+  } else {
+    headline = "Payment unlikely";
+    summary = "\u00A3" + val.toLocaleString() + " has a significant chance of non-payment. Upfront payment or declining is strongly recommended.";
   }
 
-  const levels = {
-    low: { color: "#10b981", bg: "#052e16", border: "#065f46", icon: "\u2705", headline: "Low risk" },
-    medium: { color: "#f59e0b", bg: "#1c1507", border: "#854d0e", icon: "\u26A0\uFE0F", headline: "Moderate risk" },
-    high: { color: "#f97316", bg: "#1a0f00", border: "#9a3412", icon: "\uD83D\uDFE0", headline: "Elevated risk" },
-    very_high: { color: "#ef4444", bg: "#1a0505", border: "#991b1b", icon: "\uD83D\uDD34", headline: "High risk" },
-  };
+  // Filter out duplicate/redundant reasons from distress factors
+  const seen = new Set();
+  const uniqueReasons = reasons.filter(r => {
+    const key = r.toLowerCase().slice(0, 30);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
-  const summaries = {
-    low: "\u00A3" + val.toLocaleString() + " appears to be a comfortable level of exposure for a company of this size.",
-    medium: "\u00A3" + val.toLocaleString() + " is a noticeable exposure. Standard terms are reasonable but monitor payments.",
-    high: "\u00A3" + val.toLocaleString() + " is a material exposure. Consider shorter payment terms, deposits, or staged payments.",
-    very_high: "\u00A3" + val.toLocaleString() + " is very significant relative to this company. Strongly consider upfront payment, guarantees, or declining.",
-  };
-
-  return { ...levels[riskLevel], level: riskLevel, summary: summaries[riskLevel], reasons, ratios };
+  return { paymentPct, color, bg, border, headline, summary, reasons: uniqueReasons, ratios, level: paymentPct >= 90 ? "low" : paymentPct >= 75 ? "medium" : paymentPct >= 60 ? "high" : "very_high",
+    solvencyPct: Math.round(solvencyPct), exposurePct: Math.round(exposurePct) };
 }
 
 /* COMPARE PANEL */
@@ -582,22 +617,48 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
         </div>
         <button onClick={runExposure}
           style={{ padding: "14px 24px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
-          Check Risk
+          Check Payment
         </button>
       </div>
 
-      {/* ═══ CONTEXTUAL VERDICT ═══ */}
+      {/* ═══ CONTEXTUAL VERDICT — PAYMENT PROBABILITY ═══ */}
       {exposureResult && (
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-            <span style={{ fontSize: 28 }}>{exposureResult.icon}</span>
-            <div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: exposureResult.color, textTransform: "uppercase", letterSpacing: 0.5 }}>{exposureResult.headline}</div>
-              <div style={{ fontSize: 10, color: "#64748b" }}>Your {"\u00A3"}{parseFloat(exposureAmt.replace(/[\u00A3,\s]/g, "")).toLocaleString()} exposure to {company.company_name}</div>
+          {/* Hero number */}
+          <div style={{ textAlign: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 56, fontWeight: 900, color: exposureResult.color, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>
+              {exposureResult.paymentPct}%
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: exposureResult.color, marginTop: 4 }}>
+              {exposureResult.headline}
+            </div>
+            <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>
+              Estimated likelihood of full payment on {"\u00A3"}{parseFloat(exposureAmt.replace(/[\u00A3,\s]/g, "")).toLocaleString()}
             </div>
           </div>
 
-          <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.7, marginBottom: 14 }}>{exposureResult.summary}</div>
+          {/* Probability bar */}
+          <div style={{ background: "#060a12", borderRadius: 6, height: 8, marginBottom: 16, overflow: "hidden", position: "relative" }}>
+            <div style={{ width: exposureResult.paymentPct + "%", height: "100%", background: exposureResult.color, borderRadius: 6, transition: "width 0.6s ease" }} />
+          </div>
+
+          {/* Two-factor breakdown */}
+          {exposureResult.solvencyPct && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div style={{ background: "#060a12", borderRadius: 8, padding: "10px 14px", border: "1px solid #1e293b", textAlign: "center" }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: "#f1f5f9", fontFamily: "'JetBrains Mono', monospace" }}>{exposureResult.solvencyPct}%</div>
+                <div style={{ fontSize: 8, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 2 }}>Company Solvency</div>
+                <div style={{ fontSize: 8, color: "#475569" }}>Chance they stay trading</div>
+              </div>
+              <div style={{ background: "#060a12", borderRadius: 8, padding: "10px 14px", border: "1px solid #1e293b", textAlign: "center" }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: "#f1f5f9", fontFamily: "'JetBrains Mono', monospace" }}>{exposureResult.exposurePct}%</div>
+                <div style={{ fontSize: 8, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 2 }}>Payment Capacity</div>
+                <div style={{ fontSize: 8, color: "#475569" }}>Can they pay this amount</div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.7, marginBottom: 14 }}>{exposureResult.summary}</div>
 
           {exposureResult.ratios.length > 0 && (
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
@@ -633,79 +694,6 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
         </div>
       </div>
     )}
-
-    {/* Distress Prediction */}
-    {company.distress_prediction && (() => {
-      const dp = company.distress_prediction;
-      const pct = dp.probability_pct;
-      const band = dp.risk_band;
-      const bandColors = {
-        very_low: { bg: "#052e16", border: "#065f46", text: "#6ee7b7", bar: "#10b981", label: "Very Low" },
-        low: { bg: "#052e16", border: "#065f46", text: "#6ee7b7", bar: "#34d399", label: "Low" },
-        moderate: { bg: "#1c1507", border: "#854d0e", text: "#fde68a", bar: "#f59e0b", label: "Moderate" },
-        elevated: { bg: "#1a0f00", border: "#9a3412", text: "#fdba74", bar: "#f97316", label: "Elevated" },
-        high: { bg: "#1a0505", border: "#991b1b", text: "#fca5a5", bar: "#ef4444", label: "High" },
-        very_high: { bg: "#1a0505", border: "#7f1d1d", text: "#fca5a5", bar: "#dc2626", label: "Very High" },
-      };
-      const bc = bandColors[band] || bandColors.moderate;
-      const riskFactors = dp.factors.filter(f => f[1] === "increases_risk" || f[1] === "major_risk" || f[1] === "critical");
-      const positiveFactors = dp.factors.filter(f => f[1] === "reduces_risk");
-
-      return (
-        <div style={{ background: bc.bg, borderRadius: 10, border: "1px solid " + bc.border, padding: "16px 20px", marginBottom: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-            <div>
-              <div style={{ fontSize: 8, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>
-                Distress Probability {"\u00B7"} Next 24 Months
-              </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                <span style={{ fontSize: 32, fontWeight: 800, color: bc.text, fontFamily: "'JetBrains Mono', monospace" }}>
-                  {pct}%
-                </span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: bc.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                  {bc.label} Risk
-                </span>
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <div style={{ width: 5, height: 5, borderRadius: "50%", background: dp.confidence === "high" ? "#10b981" : dp.confidence === "medium" ? "#f59e0b" : "#ef4444" }} />
-              <span style={{ fontSize: 8, color: "#475569" }}>{dp.confidence === "high" ? "High" : dp.confidence === "medium" ? "Medium" : "Low"} confidence</span>
-            </div>
-          </div>
-
-          {/* Probability bar */}
-          <div style={{ background: "#0b1120", borderRadius: 4, height: 6, marginBottom: 12, overflow: "hidden" }}>
-            <div style={{ width: Math.min(pct, 100) + "%", height: "100%", background: bc.bar, borderRadius: 4, transition: "width 0.6s ease" }} />
-          </div>
-
-          {/* Factors */}
-          {(riskFactors.length > 0 || positiveFactors.length > 0) && (
-            <div style={{ display: "grid", gridTemplateColumns: riskFactors.length > 0 && positiveFactors.length > 0 ? "1fr 1fr" : "1fr", gap: 8 }}>
-              {riskFactors.length > 0 && (
-                <div>
-                  {riskFactors.map((f, i) => (
-                    <div key={i} style={{ fontSize: 10, color: f[1] === "major_risk" || f[1] === "critical" ? "#fca5a5" : "#fdba74", padding: "1px 0" }}>
-                      {f[1] === "major_risk" || f[1] === "critical" ? "\u25B2" : "\u25CF"} {f[0]}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {positiveFactors.length > 0 && (
-                <div>
-                  {positiveFactors.map((f, i) => (
-                    <div key={i} style={{ fontSize: 10, color: "#6ee7b7", padding: "1px 0" }}>{"\u25BC"} {f[0]}</div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div style={{ fontSize: 8, color: "#475569", marginTop: 8 }}>
-            {dp.confidence === "high" ? "Based on financial data and company profile" : dp.confidence === "medium" ? "Based on company profile and limited financial data" : "Based on company profile only — treat as indicative"}
-          </div>
-        </div>
-      );
-    })()}
 
     {/* Action buttons */}
     <div className="no-print" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
