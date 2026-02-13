@@ -208,8 +208,9 @@ function BenchmarkPanel({ company }) {
   );
 }
 
-/* ASSESSMENT PANEL */
-function AssessmentPanel({ assessment, companyName, onHelp }) {
+/* ASSESSMENT DETAILS — collapsible company health breakdown */
+function AssessmentDetails({ assessment, companyName, onHelp }) {
+  const [open, setOpen] = useState(false);
   if (!assessment) return null;
   const { clearview_score, rating, confidence, pillars } = assessment;
   const col = rating.grade === "A" ? "#10b981" : rating.grade === "B" ? "#34d399" : rating.grade === "C" ? "#f59e0b" : rating.grade === "D" ? "#f97316" : rating.grade === "E" ? "#ef4444" : "#dc2626";
@@ -230,295 +231,136 @@ function AssessmentPanel({ assessment, companyName, onHelp }) {
   const trendFlags = trends.filter(t => t[2] === "risk" || t[2] === "high_risk");
   const trendPos = trends.filter(t => t[2] === "positive");
   const trendInfo = trends.filter(t => t[2] === "info");
-
-  let vp = [];
-  if (clearview_score >= 65) vp.push(companyName+" appears to be in "+rating.label.toLowerCase()+" financial health.");
-  else if (clearview_score >= 50) vp.push(companyName+" shows a fair financial position with some areas to watch.");
-  else if (clearview_score >= 35) vp.push(companyName+" shows signs of financial weakness.");
-  else vp.push(companyName+" shows significant signs of financial distress.");
-  if (flags.length > 0) vp.push("Key concern: "+flags[0][0].toLowerCase()+".");
-  if (trendInfo.length > 0 && trendInfo[0][0].startsWith("Estimated")) vp.push(trendInfo[0][0]+".");
-  if (clearview_score >= 65) vp.push("Standard credit terms appear reasonable.");
-  else if (clearview_score >= 50) vp.push("Consider monitoring or requesting references.");
-  else if (clearview_score >= 35) vp.push("Consider upfront payment or reduced terms.");
-  else vp.push("Upfront payment or guarantees strongly recommended.");
-  if (confidence === "low") vp.push("Limited data \u2014 treat with caution.");
-
   const allFlags = [...flags, ...trendFlags];
   const allPos = [...positives, ...trendPos];
 
   return (
     <div style={{ marginBottom: 20 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 16, marginBottom: 16 }}>
-        <div style={{ background: "#0b1120", borderRadius: 14, border: "1px solid "+col+"22", padding: "20px 24px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minWidth: 178 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-            <span style={{ fontSize: 8, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.5, textTransform: "uppercase" }}>Clearview Score</span>
-            <button onClick={onHelp} className="no-print" style={{ all: "unset", cursor: "pointer", width: 14, height: 14, borderRadius: "50%", background: "#1e293b", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 800, color: "#6366f1" }}>?</button>
-          </div>
-          <ScoreRing score={clearview_score} grade={rating.grade} label={rating.label} color={col} />
-          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 5 }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: confCol }} />
-            <span style={{ fontSize: 9, color: "#64748b" }}>{confLabel}</span>
+      <button onClick={() => setOpen(!open)} className="no-print" style={{ all: "unset", cursor: "pointer", width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", background: "#0b1120", borderRadius: open ? "10px 10px 0 0" : 10, border: "1px solid #1e293b" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 8, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.5, textTransform: "uppercase" }}>Company Health Details</span>
+          <span style={{ fontSize: 14, fontWeight: 800, color: col, fontFamily: "'JetBrains Mono', monospace" }}>{rating.grade}</span>
+          <span style={{ fontSize: 10, color: "#64748b" }}>{Math.round(clearview_score)}/100</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+            <div style={{ width: 5, height: 5, borderRadius: "50%", background: confCol }} />
+            <span style={{ fontSize: 8, color: "#475569" }}>{confLabel}</span>
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <PillarBar label="Financial Health" score={fh} icon={"\uD83D\uDCCA"} description={fhD} />
-          <PillarBar label="Company Stability" score={st} icon={"\uD83C\uDFE2"} description={stD} />
-          <PillarBar label="Year-on-Year Trend" score={tr} icon={"\uD83D\uDCC8"} description={trD} />
-        </div>
-      </div>
+        <span style={{ fontSize: 12, color: "#475569", transition: "transform 0.2s", transform: open ? "rotate(180deg)" : "none" }}>{"\u25BC"}</span>
+      </button>
+      {open && (
+        <div style={{ background: "#060d1b", border: "1px solid #1e293b", borderTop: "none", borderRadius: "0 0 10px 10px", padding: "16px 18px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 16, marginBottom: 16 }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minWidth: 120 }}>
+              <ScoreRing score={clearview_score} grade={rating.grade} label={rating.label} color={col} />
+              <button onClick={onHelp} className="no-print" style={{ all: "unset", cursor: "pointer", fontSize: 9, color: "#6366f1", marginTop: 8 }}>How is this calculated?</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <PillarBar label="Financial Health" score={fh} icon={"\uD83D\uDCCA"} description={fhD} />
+              <PillarBar label="Company Stability" score={st} icon={"\uD83C\uDFE2"} description={stD} />
+              <PillarBar label="Year-on-Year Trend" score={tr} icon={"\uD83D\uDCC8"} description={trD} />
+            </div>
+          </div>
 
-      {(allFlags.length > 0 || allPos.length > 0) && (
-        <div style={{ display: "grid", gridTemplateColumns: allFlags.length > 0 && allPos.length > 0 ? "1fr 1fr" : "1fr", gap: 10, marginBottom: 16 }}>
-          {allFlags.length > 0 && <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "12px 16px" }}>
-            <div style={{ fontSize: 8, fontWeight: 700, color: "#f87171", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Concerns</div>
-            {allFlags.map((s, i) => <div key={i} style={{ fontSize: 10, color: s[2]==="high_risk" ? "#fca5a5" : "#fdba74", padding: "3px 0" }}>{"\u25CF"} {s[0]}</div>)}
-          </div>}
-          {allPos.length > 0 && <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "12px 16px" }}>
-            <div style={{ fontSize: 8, fontWeight: 700, color: "#6ee7b7", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Strengths</div>
-            {allPos.map((s, i) => <div key={i} style={{ fontSize: 10, color: "#6ee7b7", padding: "3px 0" }}>{"\u25CF"} {s[0]}</div>)}
+          {(allFlags.length > 0 || allPos.length > 0) && (
+            <div style={{ display: "grid", gridTemplateColumns: allFlags.length > 0 && allPos.length > 0 ? "1fr 1fr" : "1fr", gap: 10, marginBottom: 12 }}>
+              {allFlags.length > 0 && <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "10px 14px" }}>
+                <div style={{ fontSize: 8, fontWeight: 700, color: "#f87171", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Concerns</div>
+                {allFlags.map((s, i) => <div key={i} style={{ fontSize: 10, color: s[2]==="high_risk" ? "#fca5a5" : "#fdba74", padding: "2px 0" }}>{"\u25CF"} {s[0]}</div>)}
+              </div>}
+              {allPos.length > 0 && <div style={{ background: "#0b1120", borderRadius: 8, border: "1px solid #1e293b", padding: "10px 14px" }}>
+                <div style={{ fontSize: 8, fontWeight: 700, color: "#6ee7b7", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Strengths</div>
+                {allPos.map((s, i) => <div key={i} style={{ fontSize: 10, color: "#6ee7b7", padding: "2px 0" }}>{"\u25CF"} {s[0]}</div>)}
+              </div>}
+            </div>
+          )}
+
+          {trendInfo.length > 0 && <div style={{ background: "#0f0f2e", borderRadius: 8, border: "1px solid #312e81", padding: "8px 12px" }}>
+            {trendInfo.map((t, i) => <div key={i} style={{ fontSize: 10, color: "#a5b4fc", fontWeight: 500 }}>{"\uD83D\uDCA1"} {t[0]}</div>)}
           </div>}
         </div>
       )}
-
-      {trendInfo.length > 0 && <div style={{ background: "#0f0f2e", borderRadius: 8, border: "1px solid #312e81", padding: "10px 14px", marginBottom: 16 }}>
-        {trendInfo.map((t, i) => <div key={i} style={{ fontSize: 11, color: "#a5b4fc", fontWeight: 500 }}>{"\uD83D\uDCA1"} {t[0]}</div>)}
-      </div>}
-
-      {/* Insolvency Warning */}
-      {assessment.insolvency && (assessment.insolvency.active || assessment.insolvency.cases > 0) && (
-        <div style={{ background: "#450a0a", borderRadius: 10, border: "1px solid #991b1b", padding: "14px 18px", marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 18 }}>{"\u26A0\uFE0F"}</span>
-            <span style={{ fontSize: 12, fontWeight: 800, color: "#fca5a5", textTransform: "uppercase", letterSpacing: 1 }}>
-              {assessment.insolvency.active ? "Active Insolvency" : "Insolvency History"}
-            </span>
-          </div>
-          <div style={{ fontSize: 11, color: "#fca5a5", lineHeight: 1.7 }}>
-            {assessment.insolvency.active
-              ? "This company has an active insolvency proceeding. Do not extend credit."
-              : `This company has ${assessment.insolvency.cases} past insolvency case(s) on record. Exercise extreme caution.`}
-            {assessment.insolvency.gazette_notices > 0 && ` ${assessment.insolvency.gazette_notices} Gazette insolvency notice(s) found.`}
-          </div>
-        </div>
-      )}
-
-      {/* Recommendation */}
-      <div style={{ background: "linear-gradient(135deg, #0b1120 0%, #1a1033 100%)", borderRadius: 10, border: "1px solid #2e1065", padding: "16px 20px" }}>
-        <div style={{ fontSize: 8, fontWeight: 700, color: "#a78bfa", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>Recommendation</div>
-        <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.7 }}>{vp.join(" ")}</div>
-      </div>
     </div>
   );
 }
 
-/* EXPOSURE CALCULATOR */
-function ExposureCalculator({ assessment, financials, companyName }) {
-  const [amount, setAmount] = useState("");
-  const [result, setResult] = useState(null);
+/* EXPOSURE RISK ENGINE — pure function, no UI */
+function calcExposureRisk(val, assessment, financials) {
+  if (!assessment) return null;
+  const f = financials?.[0] || {};
+  const score = assessment.clearview_score || 50;
+  const insolvency = assessment.insolvency || {};
+  const reasons = [];
+  let riskLevel = "low";
 
-  const calculate = () => {
-    const val = parseFloat(amount.replace(/[£,\s]/g, ""));
-    if (!val || val <= 0 || !assessment) return;
+  if (insolvency.active) {
+    return { level: "do_not_lend", color: "#ef4444", bg: "#450a0a", border: "#991b1b", icon: "\u26D4", headline: "Do not extend credit",
+      summary: "This company has an active insolvency proceeding. Any credit extended is at serious risk of total loss.",
+      reasons: ["Active insolvency proceeding"], ratios: [] };
+  }
 
-    const f = financials?.[0] || {};
-    const score = assessment.clearview_score || 50;
-    const insolvency = assessment.insolvency || {};
-    const reasons = [];
-    let riskLevel = "low"; // low, medium, high, very_high, do_not_lend
+  const ratios = [];
+  const na = f.net_assets, cash = f.cash, ca = f.current_assets, turnover = f.turnover;
+  let naRatio = null, cashRatio = null, caRatio = null, turnRatio = null;
 
-    // Immediate blockers
-    if (insolvency.active) {
-      setResult({ level: "do_not_lend", color: "#991b1b", bg: "#450a0a", border: "#991b1b",
-        icon: "\u26D4", headline: "Do not extend credit",
-        summary: "This company has an active insolvency proceeding. Any credit extended is at serious risk of total loss.",
-        reasons: ["Active insolvency proceeding"], ratios: [] });
-      return;
-    }
+  if (na != null && na > 0) { naRatio = (val / na) * 100; ratios.push({ label: "of net assets", value: naRatio, fmt: naRatio.toFixed(1) + "%" }); }
+  if (cash != null && cash > 0) { cashRatio = (val / cash) * 100; ratios.push({ label: "of cash", value: cashRatio, fmt: cashRatio.toFixed(1) + "%" }); }
+  if (ca != null && ca > 0) { caRatio = (val / ca) * 100; ratios.push({ label: "of current assets", value: caRatio, fmt: caRatio.toFixed(1) + "%" }); }
+  if (turnover != null && turnover > 0) { turnRatio = (val / turnover) * 100; ratios.push({ label: "of turnover", value: turnRatio, fmt: turnRatio.toFixed(1) + "%" }); }
 
-    // Calculate ratios
-    const ratios = [];
-    const na = f.net_assets;
-    const cash = f.cash;
-    const ca = f.current_assets;
-    const turnover = f.turnover;
-    const cl = f.current_liabilities || f.creditors_due_within_year;
+  if (naRatio != null) {
+    if (naRatio <= 1) { reasons.push("\u00A3" + val.toLocaleString() + " is tiny relative to their net assets (" + naRatio.toFixed(1) + "%) \u2014 very low exposure"); }
+    else if (naRatio <= 5) { reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 modest exposure"); }
+    else if (naRatio <= 15) { reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 meaningful exposure"); riskLevel = "medium"; }
+    else if (naRatio <= 40) { reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 significant exposure"); riskLevel = "high"; }
+    else { reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 very large exposure"); riskLevel = "very_high"; }
+  } else if (na != null && na <= 0) { reasons.push("Company has negative or zero net assets \u2014 no asset backing"); riskLevel = "very_high"; }
 
-    let naRatio = null, cashRatio = null, caRatio = null, turnRatio = null;
+  if (cashRatio != null) {
+    if (cashRatio <= 50) reasons.push("Could cover this from cash alone");
+    else if (cashRatio <= 200) { reasons.push("Would use " + cashRatio.toFixed(0) + "% of their cash reserves"); if (riskLevel === "low") riskLevel = "medium"; }
+    else { reasons.push("Exceeds cash reserves by " + (cashRatio / 100).toFixed(1) + "x"); if (riskLevel !== "very_high") riskLevel = "high"; }
+  }
 
-    if (na != null && na > 0) {
-      naRatio = (val / na) * 100;
-      ratios.push({ label: "% of net assets", value: naRatio, fmt: naRatio.toFixed(1) + "%" });
-    }
-    if (cash != null && cash > 0) {
-      cashRatio = (val / cash) * 100;
-      ratios.push({ label: "% of cash", value: cashRatio, fmt: cashRatio.toFixed(1) + "%" });
-    }
-    if (ca != null && ca > 0) {
-      caRatio = (val / ca) * 100;
-      ratios.push({ label: "% of current assets", value: caRatio, fmt: caRatio.toFixed(1) + "%" });
-    }
-    if (turnover != null && turnover > 0) {
-      turnRatio = (val / turnover) * 100;
-      ratios.push({ label: "% of turnover", value: turnRatio, fmt: turnRatio.toFixed(1) + "%" });
-    }
+  if (turnRatio != null) {
+    if (turnRatio <= 0.5) reasons.push("Less than 1 day\u2019s revenue");
+    else if (turnRatio <= 2) reasons.push("Roughly " + Math.max(1, Math.round(turnRatio * 3.65)) + " days\u2019 revenue");
+    else if (turnRatio > 10) { reasons.push("Equivalent to " + Math.round(turnRatio * 3.65) + " days\u2019 revenue \u2014 substantial"); if (riskLevel === "low") riskLevel = "medium"; }
+  }
 
-    // Size-relative risk assessment
-    // Net assets ratio is the primary signal
-    if (naRatio != null) {
-      if (naRatio <= 1) {
-        reasons.push("\u00A3" + val.toLocaleString() + " is tiny relative to their net assets (" + naRatio.toFixed(1) + "%) \u2014 very low exposure");
-        // stays low
-      } else if (naRatio <= 5) {
-        reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 modest exposure");
-        if (riskLevel === "low") riskLevel = "low";
-      } else if (naRatio <= 15) {
-        reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 meaningful exposure");
-        riskLevel = "medium";
-      } else if (naRatio <= 40) {
-        reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 significant exposure");
-        riskLevel = "high";
-      } else {
-        reasons.push("Represents " + naRatio.toFixed(1) + "% of net assets \u2014 this is a very large exposure");
-        riskLevel = "very_high";
-      }
-    } else if (na != null && na <= 0) {
-      reasons.push("Company has negative or zero net assets \u2014 no asset backing for your exposure");
-      riskLevel = "very_high";
-    }
+  const divs = f.dividends_paid;
+  if (divs != null && divs > 0) {
+    if (val <= divs * 0.5) reasons.push("Company paid \u00A3" + divs.toLocaleString() + " in dividends \u2014 your exposure is well within distributable profits");
+    else if (val <= divs * 2) reasons.push("Company paid \u00A3" + divs.toLocaleString() + " in dividends \u2014 comparable to your exposure");
+    else reasons.push("Company paid \u00A3" + divs.toLocaleString() + " in dividends \u2014 your exposure significantly exceeds this");
+  }
 
-    // Cash coverage
-    if (cashRatio != null) {
-      if (cashRatio <= 50) {
-        reasons.push("Could cover this from cash alone");
-      } else if (cashRatio <= 200) {
-        reasons.push("Would use " + cashRatio.toFixed(0) + "% of their cash reserves");
-        if (riskLevel === "low") riskLevel = "medium";
-      } else {
-        reasons.push("Exceeds their cash reserves by " + (cashRatio / 100).toFixed(1) + "x");
-        if (riskLevel !== "very_high") riskLevel = "high";
-      }
-    }
+  if (score < 30) { if (riskLevel === "low") riskLevel = "high"; else if (riskLevel === "medium") riskLevel = "very_high"; reasons.push("Very low credit score (" + Math.round(score) + "/100) \u2014 elevated default risk"); }
+  else if (score < 45) { if (riskLevel === "low") riskLevel = "medium"; else if (riskLevel === "medium") riskLevel = "high"; reasons.push("Below-average credit score (" + Math.round(score) + "/100)"); }
+  else if (score >= 75) { reasons.push("Strong credit score (" + Math.round(score) + "/100)"); }
 
-    // Turnover context
-    if (turnRatio != null) {
-      if (turnRatio <= 0.5) {
-        reasons.push("Less than 1 day\u2019s revenue for this business");
-      } else if (turnRatio <= 2) {
-        reasons.push("Roughly " + Math.max(1, Math.round(turnRatio * 3.65)) + " days\u2019 revenue");
-      } else if (turnRatio > 10) {
-        reasons.push("Equivalent to " + Math.round(turnRatio * 3.65) + " days\u2019 revenue \u2014 substantial for their size");
-        if (riskLevel === "low") riskLevel = "medium";
-      }
-    }
+  if (insolvency.cases > 0) { if (riskLevel === "low") riskLevel = "medium"; else if (riskLevel === "medium") riskLevel = "high"; reasons.push("Past insolvency history"); }
 
-    // Dividend context
-    const divs = f.dividends_paid;
-    if (divs != null && divs > 0) {
-      if (val <= divs * 0.5) {
-        reasons.push("Company paid \u00A3" + divs.toLocaleString() + " in dividends \u2014 your exposure is well within their distributable profits");
-      } else if (val <= divs * 2) {
-        reasons.push("Company paid \u00A3" + divs.toLocaleString() + " in dividends \u2014 comparable to your exposure");
-      } else {
-        reasons.push("Company paid \u00A3" + divs.toLocaleString() + " in dividends \u2014 your exposure significantly exceeds this");
-      }
-    }
+  if (naRatio == null && cashRatio == null && caRatio == null && turnRatio == null) {
+    reasons.push("Limited financial data \u2014 cannot assess exposure relative to company size");
+    riskLevel = score >= 50 ? "medium" : "high";
+  }
 
-    // Score modifier — poor credit health escalates risk
-    if (score < 30) {
-      if (riskLevel === "low") riskLevel = "high";
-      else if (riskLevel === "medium") riskLevel = "very_high";
-      reasons.push("Clearview score is very low (" + Math.round(score) + "/100) \u2014 elevated default risk regardless of size");
-    } else if (score < 45) {
-      if (riskLevel === "low") riskLevel = "medium";
-      else if (riskLevel === "medium") riskLevel = "high";
-      reasons.push("Below-average credit score (" + Math.round(score) + "/100) increases risk");
-    } else if (score >= 75) {
-      reasons.push("Strong credit score (" + Math.round(score) + "/100) provides additional comfort");
-    }
-
-    // Past insolvency
-    if (insolvency.cases > 0) {
-      if (riskLevel === "low") riskLevel = "medium";
-      else if (riskLevel === "medium") riskLevel = "high";
-      reasons.push("Past insolvency history adds risk");
-    }
-
-    // No financial data at all
-    if (naRatio == null && cashRatio == null && caRatio == null && turnRatio == null) {
-      reasons.push("Limited financial data available \u2014 cannot assess exposure relative to company size");
-      riskLevel = score >= 50 ? "medium" : "high";
-    }
-
-    const levels = {
-      low: { color: "#10b981", bg: "#052e16", border: "#065f46", icon: "\u2705", headline: "Low risk",
-        summary: "\u00A3" + val.toLocaleString() + " appears to be a comfortable level of exposure for a company of this size." },
-      medium: { color: "#f59e0b", bg: "#1c1507", border: "#854d0e", icon: "\u26A0\uFE0F", headline: "Moderate risk",
-        summary: "\u00A3" + val.toLocaleString() + " is a noticeable exposure for this company. Standard credit terms are reasonable but consider your payment terms." },
-      high: { color: "#f97316", bg: "#1a0f00", border: "#9a3412", icon: "\uD83D\uDFE0", headline: "Elevated risk",
-        summary: "\u00A3" + val.toLocaleString() + " represents a material exposure. Consider shorter payment terms, deposits, or staged payments." },
-      very_high: { color: "#ef4444", bg: "#1a0505", border: "#991b1b", icon: "\uD83D\uDD34", headline: "High risk",
-        summary: "\u00A3" + val.toLocaleString() + " is a very significant exposure relative to this company\u2019s size. Strongly consider upfront payment, personal guarantees, or declining." },
-    };
-
-    setResult({ ...levels[riskLevel], level: riskLevel, reasons, ratios });
+  const levels = {
+    low: { color: "#10b981", bg: "#052e16", border: "#065f46", icon: "\u2705", headline: "Low risk" },
+    medium: { color: "#f59e0b", bg: "#1c1507", border: "#854d0e", icon: "\u26A0\uFE0F", headline: "Moderate risk" },
+    high: { color: "#f97316", bg: "#1a0f00", border: "#9a3412", icon: "\uD83D\uDFE0", headline: "Elevated risk" },
+    very_high: { color: "#ef4444", bg: "#1a0505", border: "#991b1b", icon: "\uD83D\uDD34", headline: "High risk" },
   };
 
-  const handleKey = (e) => { if (e.key === "Enter") calculate(); };
+  const summaries = {
+    low: "\u00A3" + val.toLocaleString() + " appears to be a comfortable level of exposure for a company of this size.",
+    medium: "\u00A3" + val.toLocaleString() + " is a noticeable exposure. Standard terms are reasonable but monitor payments.",
+    high: "\u00A3" + val.toLocaleString() + " is a material exposure. Consider shorter payment terms, deposits, or staged payments.",
+    very_high: "\u00A3" + val.toLocaleString() + " is very significant relative to this company. Strongly consider upfront payment, guarantees, or declining.",
+  };
 
-  return (
-    <div style={{ background: "#060d1b", borderRadius: 14, border: "1px solid #1e293b", padding: "20px 22px", marginBottom: 20 }}>
-      <div style={{ fontSize: 8, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 12 }}>
-        Your Exposure Check
-      </div>
-      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14, lineHeight: 1.6 }}>
-        How much are you owed, lending, or about to invoice? We'll assess the risk based on this company's size and financial health.
-      </div>
-
-      <div style={{ display: "flex", gap: 8, marginBottom: result ? 16 : 0 }}>
-        <div style={{ position: "relative", flex: 1 }}>
-          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#475569", fontWeight: 700 }}>{"\u00A3"}</span>
-          <input
-            type="text"
-            value={amount}
-            onChange={e => { setAmount(e.target.value); setResult(null); }}
-            onKeyDown={handleKey}
-            placeholder="e.g. 5,000"
-            style={{ width: "100%", padding: "10px 12px 10px 28px", background: "#0b1120", border: "1px solid #1e293b", borderRadius: 8, color: "#f1f5f9", fontSize: 14, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, outline: "none", boxSizing: "border-box" }}
-          />
-        </div>
-        <button onClick={calculate}
-          style={{ padding: "10px 20px", background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
-          Assess Risk
-        </button>
-      </div>
-
-      {result && (
-        <div style={{ background: result.bg, borderRadius: 10, border: "1px solid " + result.border, padding: "16px 18px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 18 }}>{result.icon}</span>
-            <span style={{ fontSize: 14, fontWeight: 800, color: result.color, textTransform: "uppercase", letterSpacing: 0.5 }}>{result.headline}</span>
-          </div>
-          <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.7, marginBottom: 12 }}>{result.summary}</div>
-
-          {result.ratios.length > 0 && (
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-              {result.ratios.map((r, i) => (
-                <div key={i} style={{ background: "#0b1120", borderRadius: 6, padding: "6px 10px", border: "1px solid #1e293b" }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#f1f5f9", fontFamily: "'JetBrains Mono', monospace" }}>{r.fmt}</div>
-                  <div style={{ fontSize: 8, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 }}>{r.label}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {result.reasons.map((r, i) => (
-            <div key={i} style={{ fontSize: 11, color: "#94a3b8", padding: "2px 0", lineHeight: 1.6 }}>{"\u2022"} {r}</div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  return { ...levels[riskLevel], level: riskLevel, summary: summaries[riskLevel], reasons, ratios };
 }
 
 /* COMPARE PANEL */
@@ -650,6 +492,8 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
   const [compareQ, setCompareQ] = useState("");
   const [compareResults, setCompareResults] = useState(null);
   const [compareLoading, setCompareLoading] = useState(false);
+  const [exposureAmt, setExposureAmt] = useState("");
+  const [exposureResult, setExposureResult] = useState(null);
   useEffect(() => { requestAnimationFrame(() => setVis(true)); }, []);
 
   const age = company.date_of_creation ? new Date().getFullYear() - new Date(company.date_of_creation).getFullYear() : "?";
@@ -660,6 +504,12 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
 
   const shareUrl = window.location.origin + "/report/" + company.company_number;
   const copyLink = () => { navigator.clipboard.writeText(shareUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }); };
+
+  const runExposure = () => {
+    const val = parseFloat(exposureAmt.replace(/[\u00A3,\s]/g, ""));
+    if (!val || val <= 0) return;
+    setExposureResult(calcExposureRisk(val, company.assessment, company.financials));
+  };
 
   const searchCompare = async () => {
     if (!compareQ.trim()) return;
@@ -677,7 +527,7 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
 
     <button onClick={onBack} className="no-print" style={{ all: "unset", cursor: "pointer", color: "#6366f1", fontSize: 11, fontWeight: 600, marginBottom: 16, display: "flex", alignItems: "center", gap: 4 }}>{"\u2039"} Back to search</button>
 
-    <div style={{ marginBottom: 20 }}>
+    <div style={{ marginBottom: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: "#f1f5f9", margin: 0 }}>{company.company_name}</h1>
         <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: company.company_status === "active" ? "#064e3b" : "#7f1d1d", color: company.company_status === "active" ? "#6ee7b7" : "#fca5a5", textTransform: "uppercase" }}>{company.company_status}</span>
@@ -686,6 +536,82 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
       <div style={{ fontSize: 11, color: "#94a3b8" }}>{company.company_number} {"\u00B7"} {(company.type || "").toUpperCase()} {"\u00B7"} {age}yr {"\u00B7"} {addrStr}</div>
       <div style={{ fontSize: 10, color: "#475569", marginTop: 1 }}>SIC {sic} {"\u2014"} {company.sic_desc}</div>
     </div>
+
+    {/* ═══ AMOUNT INPUT — THE HERO ═══ */}
+    <div style={{ background: "linear-gradient(135deg, #0b1120 0%, #0d0f2b 100%)", borderRadius: 14, border: "1px solid " + (exposureResult ? exposureResult.border : "#1e293b"), padding: "22px 24px", marginBottom: 20 }}>
+      {!exposureResult && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#f1f5f9", marginBottom: 4 }}>How much is at stake?</div>
+          <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.6 }}>Enter the amount you're owed, lending, or about to invoice. We'll tell you if it's safe for a company this size.</div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, marginBottom: exposureResult ? 18 : 0 }}>
+        <div style={{ position: "relative", flex: 1 }}>
+          <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", fontSize: 16, color: "#475569", fontWeight: 700 }}>{"\u00A3"}</span>
+          <input
+            type="text"
+            value={exposureAmt}
+            onChange={e => { setExposureAmt(e.target.value); setExposureResult(null); }}
+            onKeyDown={e => e.key === "Enter" && runExposure()}
+            placeholder="e.g. 5,000"
+            autoFocus
+            style={{ width: "100%", padding: "14px 14px 14px 32px", background: "#060a12", border: "1px solid #1e293b", borderRadius: 10, color: "#f1f5f9", fontSize: 18, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, outline: "none", boxSizing: "border-box" }}
+          />
+        </div>
+        <button onClick={runExposure}
+          style={{ padding: "14px 24px", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", whiteSpace: "nowrap" }}>
+          Check Risk
+        </button>
+      </div>
+
+      {/* ═══ CONTEXTUAL VERDICT ═══ */}
+      {exposureResult && (
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <span style={{ fontSize: 28 }}>{exposureResult.icon}</span>
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: exposureResult.color, textTransform: "uppercase", letterSpacing: 0.5 }}>{exposureResult.headline}</div>
+              <div style={{ fontSize: 10, color: "#64748b" }}>Your {"\u00A3"}{parseFloat(exposureAmt.replace(/[\u00A3,\s]/g, "")).toLocaleString()} exposure to {company.company_name}</div>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 13, color: "#cbd5e1", lineHeight: 1.7, marginBottom: 14 }}>{exposureResult.summary}</div>
+
+          {exposureResult.ratios.length > 0 && (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+              {exposureResult.ratios.map((r, i) => (
+                <div key={i} style={{ background: "#060a12", borderRadius: 8, padding: "8px 12px", border: "1px solid #1e293b", minWidth: 80 }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "#f1f5f9", fontFamily: "'JetBrains Mono', monospace" }}>{r.fmt}</div>
+                  <div style={{ fontSize: 8, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 }}>{r.label}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {exposureResult.reasons.map((r, i) => (
+            <div key={i} style={{ fontSize: 11, color: "#94a3b8", padding: "2px 0", lineHeight: 1.6 }}>{"\u2022"} {r}</div>
+          ))}
+        </div>
+      )}
+    </div>
+
+    {/* Insolvency Warning — always visible if present */}
+    {company.assessment?.insolvency && (company.assessment.insolvency.active || company.assessment.insolvency.cases > 0) && (
+      <div style={{ background: "#450a0a", borderRadius: 10, border: "1px solid #991b1b", padding: "14px 18px", marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <span style={{ fontSize: 18 }}>{"\u26A0\uFE0F"}</span>
+          <span style={{ fontSize: 12, fontWeight: 800, color: "#fca5a5", textTransform: "uppercase", letterSpacing: 1 }}>
+            {company.assessment.insolvency.active ? "Active Insolvency" : "Insolvency History"}
+          </span>
+        </div>
+        <div style={{ fontSize: 11, color: "#fca5a5", lineHeight: 1.7 }}>
+          {company.assessment.insolvency.active
+            ? "This company has an active insolvency proceeding. Do not extend credit."
+            : `This company has ${company.assessment.insolvency.cases} past insolvency case(s) on record. Exercise extreme caution.`}
+        </div>
+      </div>
+    )}
 
     {/* Action buttons */}
     <div className="no-print" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
@@ -715,8 +641,8 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
     {/* Compare panel */}
     {compareWith && <ComparePanel companyA={company} companyB={compareWith} />}
 
-    <AssessmentPanel assessment={company.assessment} companyName={company.company_name} onHelp={onHelp} />
-    <ExposureCalculator assessment={company.assessment} financials={company.financials} companyName={company.company_name} />
+    {/* Company health details — collapsible */}
+    <AssessmentDetails assessment={company.assessment} companyName={company.company_name} onHelp={onHelp} />
     <BenchmarkPanel company={company} />
     <DataBar est={est} accountType={company.accounts?.last_accounts?.type || "unknown"} />
 
