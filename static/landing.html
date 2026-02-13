@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clearview — Instant Credit Checks for UK Companies</title>
+<meta name="description" content="Should you do business with them? Instant credit assessment for any UK company. Built for freelancers and small agencies.">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #060a12; font-family: 'DM Sans', sans-serif; color: #c8d0dd; overflow-x: hidden; }
+  a { color: inherit; text-decoration: none; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #060a12; }
+  ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+
+  .container { max-width: 1080px; margin: 0 auto; padding: 0 32px; }
+
+  /* NAV */
+  nav { padding: 24px 0; display: flex; justify-content: space-between; align-items: center; }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-icon { width: 32px; height: 32px; border-radius: 7px; background: linear-gradient(135deg, #0ea5e9, #6366f1); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 800; color: #fff; }
+  .logo-text { font-size: 16px; font-weight: 700; color: #f1f5f9; }
+  .nav-links { display: flex; gap: 28px; align-items: center; }
+  .nav-links a { font-size: 13px; color: #64748b; font-weight: 500; transition: color 0.2s; }
+  .nav-links a:hover { color: #e2e8f0; }
+  .btn-primary { display: inline-block; padding: 10px 24px; font-size: 13px; font-weight: 700; background: linear-gradient(135deg, #0ea5e9, #6366f1); color: #fff; border: none; border-radius: 8px; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; font-family: 'DM Sans', sans-serif; }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 30px rgba(99,102,241,0.3); }
+  .btn-secondary { display: inline-block; padding: 10px 24px; font-size: 13px; font-weight: 700; background: transparent; color: #a5b4fc; border: 1px solid #312e81; border-radius: 8px; cursor: pointer; transition: all 0.2s; font-family: 'DM Sans', sans-serif; }
+  .btn-secondary:hover { background: #1e1b4b; border-color: #4338ca; }
+
+  /* HERO */
+  .hero { padding: 100px 0 80px; text-align: center; position: relative; }
+  .hero::before { content: ''; position: absolute; top: -40%; left: 50%; transform: translateX(-50%); width: 800px; height: 800px; background: radial-gradient(circle, rgba(99,102,241,0.08) 0%, transparent 70%); pointer-events: none; }
+  .hero-badge { display: inline-block; padding: 6px 16px; background: rgba(99,102,241,0.1); border: 1px solid #312e81; border-radius: 20px; font-size: 11px; font-weight: 600; color: #a5b4fc; margin-bottom: 28px; letter-spacing: 0.5px; }
+  .hero h1 { font-family: 'Instrument Serif', serif; font-size: 64px; font-weight: 400; color: #f1f5f9; line-height: 1.1; margin-bottom: 20px; max-width: 700px; margin-left: auto; margin-right: auto; }
+  .hero h1 em { font-style: italic; color: #818cf8; }
+  .hero p { font-size: 17px; color: #64748b; max-width: 520px; margin: 0 auto 36px; line-height: 1.7; }
+  .hero-ctas { display: flex; gap: 12px; justify-content: center; margin-bottom: 60px; }
+  .hero-visual { max-width: 740px; margin: 0 auto; background: #0b1120; border: 1px solid #1e293b; border-radius: 16px; padding: 24px; box-shadow: 0 40px 80px rgba(0,0,0,0.4), 0 0 0 1px rgba(99,102,241,0.05); }
+  .hero-visual-inner { display: flex; gap: 16px; align-items: center; }
+  .hero-score { width: 120px; height: 120px; border-radius: 50%; border: 5px solid #10b981; display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; }
+  .hero-score .grade { font-size: 32px; font-weight: 800; color: #10b981; font-family: 'JetBrains Mono', monospace; line-height: 1; }
+  .hero-score .num { font-size: 14px; font-weight: 700; color: #94a3b8; font-family: 'JetBrains Mono', monospace; }
+  .hero-score .label { font-size: 8px; color: #475569; margin-top: 2px; }
+  .hero-bars { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+  .hero-bar { display: flex; align-items: center; gap: 10px; }
+  .hero-bar-label { font-size: 11px; color: #94a3b8; width: 110px; font-weight: 500; }
+  .hero-bar-track { flex: 1; height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden; }
+  .hero-bar-fill { height: 100%; border-radius: 3px; }
+  .hero-bar-val { font-size: 10px; font-weight: 700; font-family: 'JetBrains Mono', monospace; width: 36px; text-align: right; }
+  .hero-flags { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .hero-flag { font-size: 10px; padding: 4px 10px; border-radius: 4px; font-weight: 600; }
+
+  /* STATS */
+  .stats { padding: 40px 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; border-top: 1px solid #0f172a; border-bottom: 1px solid #0f172a; margin-bottom: 80px; }
+  .stat { text-align: center; padding: 20px; }
+  .stat-num { font-size: 32px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #f1f5f9; }
+  .stat-label { font-size: 12px; color: #475569; margin-top: 4px; }
+
+  /* HOW IT WORKS */
+  .how { padding: 80px 0; }
+  .section-label { font-size: 11px; font-weight: 700; color: #6366f1; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12px; }
+  .section-title { font-family: 'Instrument Serif', serif; font-size: 40px; color: #f1f5f9; margin-bottom: 16px; line-height: 1.2; }
+  .section-sub { font-size: 15px; color: #64748b; max-width: 480px; line-height: 1.7; margin-bottom: 48px; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .step { background: #0b1120; border: 1px solid #1e293b; border-radius: 14px; padding: 28px; transition: border-color 0.3s; position: relative; overflow: hidden; }
+  .step:hover { border-color: #312e81; }
+  .step-num { font-size: 48px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #1e293b; position: absolute; top: -8px; right: 12px; }
+  .step-icon { font-size: 28px; margin-bottom: 16px; }
+  .step h3 { font-size: 16px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px; }
+  .step p { font-size: 13px; color: #64748b; line-height: 1.6; }
+
+  /* FEATURES */
+  .features { padding: 80px 0; }
+  .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .feature { background: #0b1120; border: 1px solid #1e293b; border-radius: 12px; padding: 24px; transition: border-color 0.3s; }
+  .feature:hover { border-color: #312e81; }
+  .feature-icon { font-size: 22px; margin-bottom: 12px; }
+  .feature h3 { font-size: 14px; font-weight: 700; color: #f1f5f9; margin-bottom: 6px; }
+  .feature p { font-size: 12px; color: #64748b; line-height: 1.6; }
+
+  /* PRICING */
+  .pricing { padding: 80px 0; }
+  .pricing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; max-width: 900px; margin: 0 auto; }
+  .plan { background: #0b1120; border: 1px solid #1e293b; border-radius: 16px; padding: 32px 28px; display: flex; flex-direction: column; transition: border-color 0.3s; }
+  .plan:hover { border-color: #312e81; }
+  .plan.featured { border-color: #6366f1; background: linear-gradient(135deg, #0b1120 0%, #0f0f2e 100%); position: relative; }
+  .plan.featured::before { content: 'MOST POPULAR'; position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, #0ea5e9, #6366f1); color: #fff; font-size: 9px; font-weight: 800; padding: 4px 14px; border-radius: 10px; letter-spacing: 1px; }
+  .plan-name { font-size: 14px; font-weight: 700; color: #94a3b8; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .plan-price { font-family: 'Instrument Serif', serif; font-size: 44px; color: #f1f5f9; margin-bottom: 4px; }
+  .plan-price span { font-size: 16px; color: #475569; font-family: 'DM Sans', sans-serif; }
+  .plan-desc { font-size: 12px; color: #475569; margin-bottom: 24px; line-height: 1.5; }
+  .plan-features { list-style: none; margin-bottom: 28px; flex: 1; }
+  .plan-features li { font-size: 12px; color: #94a3b8; padding: 6px 0; display: flex; align-items: center; gap: 8px; }
+  .plan-features li::before { content: '\2713'; color: #10b981; font-weight: 700; font-size: 11px; }
+  .plan-features li.disabled { color: #334155; }
+  .plan-features li.disabled::before { content: '\2717'; color: #334155; }
+  .plan-cta { width: 100%; padding: 12px; font-size: 13px; font-weight: 700; border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; text-align: center; }
+
+  /* COMPARISON */
+  .vs { padding: 60px 0; }
+  .vs-table { width: 100%; border-collapse: collapse; max-width: 700px; margin: 0 auto; }
+  .vs-table th, .vs-table td { padding: 12px 20px; text-align: left; border-bottom: 1px solid #141d2d; font-size: 13px; }
+  .vs-table th { color: #475569; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+  .vs-table td:first-child { color: #94a3b8; }
+  .vs-table td:nth-child(2) { color: #64748b; }
+  .vs-table td:nth-child(3) { color: #6ee7b7; font-weight: 700; }
+
+  /* CTA */
+  .final-cta { padding: 100px 0; text-align: center; position: relative; }
+  .final-cta::before { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 600px; height: 400px; background: radial-gradient(circle, rgba(99,102,241,0.06) 0%, transparent 70%); pointer-events: none; }
+  .final-cta h2 { font-family: 'Instrument Serif', serif; font-size: 44px; color: #f1f5f9; margin-bottom: 16px; }
+  .final-cta p { font-size: 15px; color: #64748b; margin-bottom: 32px; max-width: 440px; margin-left: auto; margin-right: auto; line-height: 1.7; }
+
+  /* FOOTER */
+  footer { padding: 40px 0; border-top: 1px solid #0f172a; text-align: center; font-size: 11px; color: #1e293b; }
+
+  @media (max-width: 768px) {
+    .hero h1 { font-size: 38px; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .steps, .feature-grid, .pricing-grid { grid-template-columns: 1fr; }
+    .hero-visual-inner { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <nav>
+    <div class="logo">
+      <div class="logo-icon">C</div>
+      <div class="logo-text">Clearview</div>
+    </div>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="/app" class="btn-primary">Try Free &rarr;</a>
+    </div>
+  </nav>
+</div>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-badge">&#9889; Powered by Companies House live data</div>
+    <h1>Should you do business with <em>them?</em></h1>
+    <p>Instant credit assessment for any UK company. Know who you're working with before you send the invoice.</p>
+    <div class="hero-ctas">
+      <a href="/app" class="btn-primary">Check a company free &rarr;</a>
+      <a href="#how" class="btn-secondary">See how it works</a>
+    </div>
+
+    <div class="hero-visual">
+      <div style="font-size: 13px; font-weight: 700; color: #f1f5f9; margin-bottom: 4px;">ACME WIDGETS LTD</div>
+      <div style="font-size: 10px; color: #475569; margin-bottom: 16px;">12345678 &middot; LTD &middot; 12yr &middot; London</div>
+      <div class="hero-visual-inner">
+        <div class="hero-score">
+          <div class="grade">B</div>
+          <div class="num">72</div>
+          <div class="label">Good</div>
+        </div>
+        <div style="flex: 1;">
+          <div class="hero-bars">
+            <div class="hero-bar">
+              <div class="hero-bar-label">&#128202; Financial Health</div>
+              <div class="hero-bar-track"><div class="hero-bar-fill" style="width: 68%; background: #10b981;"></div></div>
+              <div class="hero-bar-val" style="color: #10b981;">Good</div>
+            </div>
+            <div class="hero-bar">
+              <div class="hero-bar-label">&#127970; Stability</div>
+              <div class="hero-bar-track"><div class="hero-bar-fill" style="width: 80%; background: #10b981;"></div></div>
+              <div class="hero-bar-val" style="color: #10b981;">Good</div>
+            </div>
+            <div class="hero-bar">
+              <div class="hero-bar-label">&#128200; Trend</div>
+              <div class="hero-bar-track"><div class="hero-bar-fill" style="width: 55%; background: #f59e0b;"></div></div>
+              <div class="hero-bar-val" style="color: #f59e0b;">Fair</div>
+            </div>
+          </div>
+          <div class="hero-flags">
+            <div class="hero-flag" style="background: #052e16; color: #6ee7b7;">&#10003; Filing up to date</div>
+            <div class="hero-flag" style="background: #052e16; color: #6ee7b7;">&#10003; Established (12yr)</div>
+            <div class="hero-flag" style="background: #052e16; color: #6ee7b7;">&#10003; Stable board</div>
+            <div class="hero-flag" style="background: #451a03; color: #fdba74;">&#9679; Cash position declining</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 16px; padding: 12px 16px; background: linear-gradient(135deg, #0b1120, #1a1033); border-radius: 8px; border: 1px solid #2e1065;">
+        <div style="font-size: 8px; font-weight: 700; color: #a78bfa; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 4px;">RECOMMENDATION</div>
+        <div style="font-size: 11px; color: #cbd5e1; line-height: 1.6;">ACME WIDGETS LTD appears to be in good financial health. Standard credit terms appear reasonable.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<div class="container">
+  <div class="stats">
+    <div class="stat"><div class="stat-num">5M+</div><div class="stat-label">UK companies searchable</div></div>
+    <div class="stat"><div class="stat-num">4yr</div><div class="stat-label">of accounts analysed</div></div>
+    <div class="stat"><div class="stat-num">30s</div><div class="stat-label">average assessment time</div></div>
+    <div class="stat"><div class="stat-num">&pound;0</div><div class="stat-label">to start checking</div></div>
+  </div>
+</div>
+
+<!-- HOW IT WORKS -->
+<section class="how" id="how">
+  <div class="container">
+    <div class="section-label">How it works</div>
+    <div class="section-title">Three steps to confidence</div>
+    <div class="section-sub">Stop guessing. Know where you stand before you agree terms.</div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">01</div>
+        <div class="step-icon">&#128269;</div>
+        <h3>Search any company</h3>
+        <p>Enter a company name or number. We search the full Companies House register &mdash; over 5 million UK companies.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <div class="step-icon">&#9889;</div>
+        <h3>Instant analysis</h3>
+        <p>We parse their filed accounts, officer records, and charges data in real time. Up to 4 years of financial history analysed in seconds.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <div class="step-icon">&#9989;</div>
+        <h3>Get a clear answer</h3>
+        <p>A simple A&ndash;F rating with plain-English explanations. Know whether to proceed, negotiate terms, or walk away.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="section-label">Features</div>
+    <div class="section-title">Everything you need to decide</div>
+    <div class="section-sub">Built specifically for freelancers and small agencies who need quick, affordable credit intelligence.</div>
+    <div class="feature-grid">
+      <div class="feature">
+        <div class="feature-icon">&#128202;</div>
+        <h3>Three-Pillar Scoring</h3>
+        <p>Financial health, company stability, and year-on-year trends &mdash; weighted and combined into one clear score.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#128200;</div>
+        <h3>Multi-Year Analysis</h3>
+        <p>Up to 4 years of accounts parsed and compared. Spot sustained decline vs one-off dips. See the full trajectory.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#127919;</div>
+        <h3>Balance-Sheet Intelligence</h3>
+        <p>95% of UK small companies don't file a P&L. We extract profit signals from balance sheet movements that others miss.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#128279;</div>
+        <h3>Shareable Reports</h3>
+        <p>One-click share links and PDF downloads. Send a report to your accountant, business partner, or client.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#8596;</div>
+        <h3>Company Comparison</h3>
+        <p>Choosing between two suppliers? Compare them side by side on every metric that matters.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#127981;</div>
+        <h3>Industry Benchmarks</h3>
+        <p>See how a company's ratios compare to others in their sector. Context that raw numbers alone can't give you.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#128203;</div>
+        <h3>Batch Upload</h3>
+        <p>Got 50 suppliers to check? Upload a CSV and get a traffic-light report back in minutes. <em style="color: #6366f1;">Pro plan</em></p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#128276;</div>
+        <h3>Monitoring Alerts</h3>
+        <p>Get notified when a watched company's score changes, files late, or shows new red flags. <em style="color: #6366f1;">Coming soon</em></p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#128187;</div>
+        <h3>API Access</h3>
+        <p>Integrate credit checks into your invoicing or CRM system. RESTful JSON API with simple authentication. <em style="color: #6366f1;">Business plan</em></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- VS COMPETITORS -->
+<section class="vs">
+  <div class="container">
+    <div class="section-label">Why Clearview</div>
+    <div class="section-title">How we compare</div>
+    <div class="section-sub">The same intelligence, without the enterprise price tag.</div>
+    <table class="vs-table">
+      <thead><tr><th></th><th>Experian / Creditsafe</th><th>Clearview</th></tr></thead>
+      <tbody>
+        <tr><td>Cost per report</td><td>&pound;5&ndash;30</td><td>Free / from &pound;0.40</td></tr>
+        <tr><td>Minimum commitment</td><td>Annual contract</td><td>None &mdash; pay monthly</td></tr>
+        <tr><td>Setup time</td><td>Sales call + onboarding</td><td>Instant &mdash; search and go</td></tr>
+        <tr><td>Data source</td><td>Proprietary + CH</td><td>Companies House (live)</td></tr>
+        <tr><td>Covers micro/small companies</td><td>Limited</td><td>Full balance-sheet analysis</td></tr>
+        <tr><td>Multi-year trend analysis</td><td>Sometimes</td><td>Up to 4 years, always</td></tr>
+        <tr><td>Built for freelancers</td><td>No</td><td>Yes</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="pricing" id="pricing">
+  <div class="container">
+    <div style="text-align: center; margin-bottom: 48px;">
+      <div class="section-label" style="text-align: center;">Pricing</div>
+      <div class="section-title" style="text-align: center;">Start free. Scale when you need to.</div>
+      <div class="section-sub" style="text-align: center; margin-left: auto; margin-right: auto;">No contracts. No sales calls. Cancel anytime.</div>
+    </div>
+    <div class="pricing-grid">
+      <div class="plan">
+        <div class="plan-name">FREE</div>
+        <div class="plan-price">&pound;0</div>
+        <div class="plan-desc">Perfect for occasional checks. No card required.</div>
+        <ul class="plan-features">
+          <li>3 company checks per month</li>
+          <li>Full credit assessment</li>
+          <li>Share links</li>
+          <li>PDF reports</li>
+          <li class="disabled">Batch upload</li>
+          <li class="disabled">Monitoring alerts</li>
+          <li class="disabled">API access</li>
+        </ul>
+        <a href="/app" class="plan-cta btn-secondary">Get started free</a>
+      </div>
+      <div class="plan featured">
+        <div class="plan-name">PRO</div>
+        <div class="plan-price">&pound;9.99<span>/mo</span></div>
+        <div class="plan-desc">For freelancers and agencies who check regularly.</div>
+        <ul class="plan-features">
+          <li>Unlimited company checks</li>
+          <li>Full credit assessment</li>
+          <li>Share links & PDF reports</li>
+          <li>Batch upload (50 companies)</li>
+          <li>Company comparison</li>
+          <li>Industry benchmarks</li>
+          <li class="disabled">API access</li>
+        </ul>
+        <button class="plan-cta btn-primary" onclick="alert('Coming soon! We\'re launching paid plans shortly.')">Start 14-day free trial</button>
+      </div>
+      <div class="plan">
+        <div class="plan-name">BUSINESS</div>
+        <div class="plan-price">&pound;29.99<span>/mo</span></div>
+        <div class="plan-desc">For teams and businesses with volume needs.</div>
+        <ul class="plan-features">
+          <li>Unlimited company checks</li>
+          <li>Everything in Pro</li>
+          <li>Batch upload (500 companies)</li>
+          <li>Monitoring alerts (50 companies)</li>
+          <li>API access (1,000 calls/mo)</li>
+          <li>Priority support</li>
+          <li>Team sharing</li>
+        </ul>
+        <button class="plan-cta btn-secondary" onclick="alert('Coming soon! We\'re launching paid plans shortly.')">Start 14-day free trial</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="final-cta">
+  <div class="container">
+    <h2>Stop guessing. Start knowing.</h2>
+    <p>Join thousands of freelancers and agencies who check before they commit. Your first 3 checks are free.</p>
+    <a href="/app" class="btn-primary" style="font-size: 15px; padding: 14px 36px;">Check a company now &rarr;</a>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    Clearview &middot; Data from Companies House &middot; Not financial advice &middot; &copy; 2026
+  </div>
+</footer>
+
+</body>
+</html>

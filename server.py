@@ -45,7 +45,18 @@ SIC_DESCRIPTIONS = {}
 
 
 @app.route("/")
-def index():
+def landing():
+    return send_from_directory("static", "landing.html")
+
+
+@app.route("/app")
+def app_page():
+    return send_from_directory("static", "index.html")
+
+
+@app.route("/report/<path:rest>")
+def report_page(rest):
+    """SPA catch-all — serve index.html for /report/XXXXX share links."""
     return send_from_directory("static", "index.html")
 
 
