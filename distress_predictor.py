@@ -342,4 +342,10 @@ def predict_distress(company_data, financials=None):
         "risk_band": risk_band,
         "factors": factors,
         "confidence": confidence,
+        "model_info": {
+            "version": model.get("version", "fallback"),
+            "total_companies": model.get("total_companies", 0),
+            "auc_roc": model.get("auc_roc", 0),
+            "trained_on": model.get("trained_on", ""),
+        },
     }
