@@ -592,8 +592,77 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
         <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: "#1e1b4b", color: "#a5b4fc", border: "1px solid #312e81" }}>{methodLabel}</span>
       </div>
       <div style={{ fontSize: 11, color: "#94a3b8" }}>{company.company_number} {"\u00B7"} {(company.type || "").toUpperCase()} {"\u00B7"} {age}yr {"\u00B7"} {addrStr}</div>
-      <div style={{ fontSize: 10, color: "#475569", marginTop: 1 }}>SIC {sic} {"\u2014"} {company.sic_desc}</div>
+      <div style={{ fontSize: 10, color: "#475569", marginTop: 1 }}>
+        SIC {sic} {"\u2014"} {company.sic_desc}
+        {[41,42,43,56,55,68,47,49].includes(parseInt(String(sic).slice(0,2))) && (
+          <span style={{ marginLeft: 8, fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#422006", color: "#fbbf24", border: "1px solid #854d0e" }}>HIGH-RISK SECTOR</span>
+        )}
+      </div>
+      {/* Filing age */}
+      {company.accounts?.last_accounts?.made_up_to && (() => {
+        const filed = new Date(company.accounts.last_accounts.made_up_to);
+        const daysSince = Math.round((new Date() - filed) / (1000*60*60*24));
+        const col = daysSince > 600 ? "#f87171" : daysSince > 400 ? "#fbbf24" : "#64748b";
+        return <div style={{ fontSize: 10, color: col, marginTop: 3 }}>Last accounts filed: {company.accounts.last_accounts.made_up_to} ({daysSince} days ago){daysSince > 600 ? " \u2014 significantly outdated" : daysSince > 400 ? " \u2014 ageing" : ""}</div>;
+      })()}
     </div>
+
+    {/* ═══ ACCOUNTS OVERDUE WARNING ═══ */}
+    {company.accounts?.overdue && (
+      <div style={{ background: "#450a0a", borderRadius: 10, border: "1px solid #991b1b", padding: "14px 18px", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <span style={{ fontSize: 18 }}>{"\uD83D\uDEA8"}</span>
+          <span style={{ fontSize: 12, fontWeight: 800, color: "#fca5a5", textTransform: "uppercase", letterSpacing: 1 }}>Accounts Overdue</span>
+        </div>
+        <div style={{ fontSize: 11, color: "#fca5a5", lineHeight: 1.7 }}>
+          This company has not filed accounts by their due date{company.accounts?.next_due ? ` (${company.accounts.next_due})` : ""}.
+          Overdue filing is the single strongest predictor of company failure, accounting for over 50% of the distress signal in our model.
+          Exercise significant caution.
+        </div>
+      </div>
+    )}
+
+    {/* ═══ CONFIRMATION STATEMENT OVERDUE ═══ */}
+    {company.confirmation_statement?.overdue && !company.accounts?.overdue && (
+      <div style={{ background: "#1a0f00", borderRadius: 10, border: "1px solid #854d0e", padding: "14px 18px", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <span style={{ fontSize: 18 }}>{"\u26A0\uFE0F"}</span>
+          <span style={{ fontSize: 12, fontWeight: 800, color: "#fbbf24", textTransform: "uppercase", letterSpacing: 1 }}>Confirmation Statement Overdue</span>
+        </div>
+        <div style={{ fontSize: 11, color: "#fbbf24", lineHeight: 1.7 }}>
+          This company has not filed its annual confirmation statement on time. While less severe than overdue accounts,
+          this indicates potential administrative neglect and is associated with elevated failure risk.
+        </div>
+      </div>
+    )}
+
+    {/* ═══ OUTSTANDING CHARGES WARNING ═══ */}
+    {company.charges?.outstanding > 2 && (
+      <div style={{ background: "#1a0f00", borderRadius: 10, border: "1px solid #854d0e", padding: "14px 18px", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <span style={{ fontSize: 18 }}>{"\uD83D\uDD12"}</span>
+          <span style={{ fontSize: 12, fontWeight: 800, color: "#fbbf24", textTransform: "uppercase", letterSpacing: 1 }}>{company.charges.outstanding} Outstanding Charges</span>
+        </div>
+        <div style={{ fontSize: 11, color: "#fbbf24", lineHeight: 1.7 }}>
+          This company has {company.charges.outstanding} unresolved secured charges (mortgages or debentures).
+          Secured creditors are paid before unsecured trade creditors in insolvency. Your invoice would rank behind these obligations.
+        </div>
+      </div>
+    )}
+
+    {/* ═══ YOUNG COMPANY WARNING ═══ */}
+    {age !== "?" && age <= 2 && (
+      <div style={{ background: "#0c1222", borderRadius: 10, border: "1px solid #1e3a5f", padding: "14px 18px", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <span style={{ fontSize: 18 }}>{"\uD83C\uDD95"}</span>
+          <span style={{ fontSize: 12, fontWeight: 800, color: "#60a5fa", textTransform: "uppercase", letterSpacing: 1 }}>New Company ({age < 1 ? "under 1 year" : age + " years"})</span>
+        </div>
+        <div style={{ fontSize: 11, color: "#93c5fd", lineHeight: 1.7 }}>
+          Companies under 2 years old have a significantly higher failure rate. Our model shows company age as the second strongest
+          predictor of distress (23% of signal). Consider smaller initial invoices or upfront payment until a track record is established.
+        </div>
+      </div>
+    )}
 
     {/* ═══ AMOUNT INPUT — THE HERO ═══ */}
     <div style={{ background: "linear-gradient(135deg, #0b1120 0%, #0d0f2b 100%)", borderRadius: 14, border: "1px solid " + (exposureResult ? exposureResult.border : "#1e293b"), padding: "22px 24px", marginBottom: 20 }}>
