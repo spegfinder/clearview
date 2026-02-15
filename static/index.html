@@ -285,12 +285,32 @@ function AssessmentDetails({ assessment, companyName, onHelp }) {
 }
 
 /* EXPOSURE RISK ENGINE — pure function, no UI */
-function calcExposureRisk(val, assessment, financials, distressPrediction) {
+function calcExposureRisk(val, assessment, financials, distressPrediction, companyObj) {
   if (!assessment) return null;
   const f = financials?.[0] || {};
   const score = assessment.clearview_score || 50;
   const insolvency = assessment.insolvency || {};
   const reasons = [];
+  const companyData = companyObj || {};
+
+  if (insolvency.active) {
+    return { paymentPct: 5, color: "#ef4444", bg: "#450a0a", border: "#991b1b",
+      headline: "Do not extend credit",
+      summary: "This company has an active insolvency proceeding. Any credit extended is at serious risk of total loss.",
+      reasons: ["Active insolvency proceeding"], ratios: [], level: "do_not_lend" };
+  }
+
+  // Check for critical gazette notices
+  const gazetteNotices = companyData.gazette_notices || [];
+  const criticalGazette = gazetteNotices.filter(n => n.severity === "critical");
+  if (criticalGazette.length > 0) {
+    const types = criticalGazette.map(n => n.type).join(", ");
+    reasons.push(`London Gazette: ${types}`);
+  }
+
+  // Government contracts boost
+  const govContracts = companyData.government_contracts || {};
+  const hasGovContracts = govContracts.total_contracts > 0;
 
   if (insolvency.active) {
     return { paymentPct: 5, color: "#ef4444", bg: "#450a0a", border: "#991b1b",
@@ -319,6 +339,17 @@ function calcExposureRisk(val, assessment, financials, distressPrediction) {
 
   // ── 2. Exposure: chance they pay THIS amount given they survive ──
   const ratios = [];
+
+  // Gazette penalty on solvency
+  if (criticalGazette.length > 0) {
+    solvencyPct = Math.min(solvencyPct, 30); // Cap at 30% if winding up petition etc
+  }
+
+  // Government contracts boost on solvency
+  if (hasGovContracts) {
+    solvencyPct = Math.min(solvencyPct + 2, 99);
+    reasons.push(`Government contract holder (${govContracts.total_contracts} contract${govContracts.total_contracts !== 1 ? "s" : ""}${govContracts.total_value > 0 ? ", \u00A3" + Math.round(govContracts.total_value).toLocaleString() : ""})`);
+  }
   const na = f.net_assets, cash = f.cash, ca = f.current_assets, turnover = f.turnover;
   let naRatio = null, cashRatio = null, turnRatio = null;
 
@@ -532,7 +563,7 @@ function HelpPage({ onBack }) {
 }
 
 /* DASHBOARD */
-function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
+function Dashboard({ company, onBack, onHelp, onCompare, compareWith, watchlist }) {
   if (!company.financials || !company.financials.length) {
     return (<div style={{ padding: 40, textAlign: "center" }}>
       <button onClick={onBack} className="no-print" style={{ all: "unset", cursor: "pointer", color: "#6366f1", fontSize: 11, fontWeight: 600, marginBottom: 18 }}>{"\u2039"} Back</button>
@@ -566,7 +597,7 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
   const runExposure = () => {
     const val = parseFloat(exposureAmt.replace(/[\u00A3,\s]/g, ""));
     if (!val || val <= 0) return;
-    setExposureResult(calcExposureRisk(val, company.assessment, company.financials, company.distress_prediction));
+    setExposureResult(calcExposureRisk(val, company.assessment, company.financials, company.distress_prediction, company));
   };
 
   const searchCompare = async () => {
@@ -660,6 +691,73 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
         <div style={{ fontSize: 11, color: "#93c5fd", lineHeight: 1.7 }}>
           Companies under 2 years old have a significantly higher failure rate. Our model shows company age as the second strongest
           predictor of distress (23% of signal). Consider smaller initial invoices or upfront payment until a track record is established.
+        </div>
+      </div>
+    )}
+
+    {/* ═══ GAZETTE WARNINGS — Critical insolvency notices ═══ */}
+    {company.gazette_notices?.length > 0 && company.gazette_notices.some(n => n.severity === "critical" || n.severity === "high") && (
+      <div style={{ background: "#450a0a", borderRadius: 10, border: "1px solid #991b1b", padding: "14px 18px", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <span style={{ fontSize: 18 }}>{"\uD83D\uDCC4"}</span>
+          <span style={{ fontSize: 12, fontWeight: 800, color: "#fca5a5", textTransform: "uppercase", letterSpacing: 1 }}>London Gazette — Insolvency Notices</span>
+        </div>
+        <div style={{ fontSize: 11, color: "#fca5a5", lineHeight: 1.7, marginBottom: 8 }}>
+          Official insolvency notices have been published in The London Gazette for this company.
+          These are legally mandated public records of insolvency proceedings.
+        </div>
+        {company.gazette_notices.filter(n => n.severity === "critical" || n.severity === "high").map((n, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderTop: i > 0 ? "1px solid #1c1111" : "none" }}>
+            <span style={{ fontSize: 8, fontWeight: 800, padding: "2px 6px", borderRadius: 3,
+              background: n.severity === "critical" ? "#7f1d1d" : "#422006",
+              color: n.severity === "critical" ? "#fca5a5" : "#fbbf24" }}>
+              {n.severity === "critical" ? "CRITICAL" : "WARNING"}
+            </span>
+            <span style={{ fontSize: 11, color: "#e2e8f0" }}>{n.type}</span>
+            {n.date && <span style={{ fontSize: 9, color: "#64748b" }}>{n.date}</span>}
+          </div>
+        ))}
+        <div style={{ fontSize: 9, color: "#475569", marginTop: 8, fontStyle: "italic" }}>
+          Source: The London Gazette (thegazette.co.uk) — Crown Copyright, Open Government Licence
+        </div>
+      </div>
+    )}
+
+    {/* ═══ GOVERNMENT CONTRACTS — Positive signal ═══ */}
+    {company.government_contracts?.total_contracts > 0 && (
+      <div style={{ background: "#052e16", borderRadius: 10, border: "1px solid #065f46", padding: "14px 18px", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <span style={{ fontSize: 18 }}>{"\uD83C\uDFF0"}</span>
+          <span style={{ fontSize: 12, fontWeight: 800, color: "#6ee7b7", textTransform: "uppercase", letterSpacing: 1 }}>Government Contract Holder</span>
+        </div>
+        <div style={{ fontSize: 11, color: "#a7f3d0", lineHeight: 1.7, marginBottom: 8 }}>
+          This company has been awarded{" "}
+          <span style={{ fontWeight: 700, color: "#ecfdf5" }}>
+            {company.government_contracts.total_contracts} government contract{company.government_contracts.total_contracts !== 1 ? "s" : ""}
+          </span>
+          {company.government_contracts.total_value > 0 && (
+            <>{" "}worth{" "}
+            <span style={{ fontWeight: 700, color: "#ecfdf5" }}>
+              {"\u00A3"}{Math.round(company.government_contracts.total_value).toLocaleString()}
+            </span></>
+          )}.
+          Government-vetted suppliers have passed procurement due diligence — a strong positive signal.
+        </div>
+        {company.government_contracts.contracts?.slice(0, 3).map((c, i) => (
+          <div key={i} style={{ padding: "4px 0", borderTop: i > 0 ? "1px solid #064e3b" : "none" }}>
+            <div style={{ fontSize: 10, color: "#d1fae5", fontWeight: 600 }}>{c.title || "Contract award"}</div>
+            <div style={{ fontSize: 9, color: "#6ee7b7" }}>
+              {c.buyer}{c.value > 0 && ` \u00B7 \u00A3${Math.round(c.value).toLocaleString()}`}{c.date && ` \u00B7 ${c.date}`}
+            </div>
+          </div>
+        ))}
+        {company.government_contracts.total_contracts > 3 && (
+          <div style={{ fontSize: 9, color: "#065f46", marginTop: 4 }}>
+            +{company.government_contracts.total_contracts - 3} more contract{company.government_contracts.total_contracts - 3 !== 1 ? "s" : ""}
+          </div>
+        )}
+        <div style={{ fontSize: 9, color: "#065f46", marginTop: 8, fontStyle: "italic" }}>
+          Source: Contracts Finder (contractsfinder.service.gov.uk) — Open Government Licence
         </div>
       </div>
     )}
@@ -819,6 +917,16 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
       <button onClick={() => window.print()} style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700, background: "#1e1b4b", color: "#a5b4fc", border: "1px solid #312e81", borderRadius: 6, cursor: "pointer" }}>{"\uD83D\uDCC4"} Download PDF</button>
       <button onClick={copyLink} style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700, background: "#1e1b4b", color: "#a5b4fc", border: "1px solid #312e81", borderRadius: 6, cursor: "pointer" }}>{copied ? "\u2713 Copied!" : "\uD83D\uDD17 Share Link"}</button>
       <button onClick={() => setShowCompareSearch(!showCompareSearch)} style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700, background: "#1e1b4b", color: "#a5b4fc", border: "1px solid #312e81", borderRadius: 6, cursor: "pointer" }}>{"\u2194"} Compare</button>
+      {watchlist && (
+        <button onClick={() => watchlist.isWatched(company.company_number) ? watchlist.remove(company.company_number) : watchlist.add(company)}
+          style={{ padding: "6px 14px", fontSize: 10, fontWeight: 700,
+            background: watchlist.isWatched(company.company_number) ? "#052e16" : "#1e1b4b",
+            color: watchlist.isWatched(company.company_number) ? "#6ee7b7" : "#a5b4fc",
+            border: "1px solid " + (watchlist.isWatched(company.company_number) ? "#065f46" : "#312e81"),
+            borderRadius: 6, cursor: "pointer" }}>
+          {watchlist.isWatched(company.company_number) ? "\u2713 Watching" : "\uD83D\uDC41 Watch"}
+        </button>
+      )}
     </div>
 
     {/* Compare search */}
@@ -916,6 +1024,258 @@ function Dashboard({ company, onBack, onHelp, onCompare, compareWith }) {
   </div>);
 }
 
+/* ═══════════════════════════════════════════════════ */
+/*  WATCHLIST / MONITORING DASHBOARD                  */
+/* ═══════════════════════════════════════════════════ */
+
+function useWatchlist() {
+  const [list, setList] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("clearview_watchlist") || "[]"); }
+    catch { return []; }
+  });
+
+  const save = (next) => {
+    setList(next);
+    localStorage.setItem("clearview_watchlist", JSON.stringify(next));
+  };
+
+  const add = (company) => {
+    const entry = {
+      company_number: company.company_number,
+      company_name: company.company_name,
+      added: new Date().toISOString(),
+      last_checked: null,
+      last_score: company.assessment?.clearview_score || null,
+      last_grade: company.assessment?.rating?.grade || null,
+      last_status: company.company_status || null,
+      alerts: [],
+    };
+    const next = [entry, ...list.filter(w => w.company_number !== company.company_number)];
+    save(next);
+    return next;
+  };
+
+  const remove = (number) => {
+    const next = list.filter(w => w.company_number !== number);
+    save(next);
+    return next;
+  };
+
+  const isWatched = (number) => list.some(w => w.company_number === number);
+
+  const updateFromCheck = (results) => {
+    const now = new Date().toISOString();
+    const next = list.map(w => {
+      const r = results.find(res => res.company_number === w.company_number);
+      if (!r || r.error) return { ...w, last_checked: now };
+
+      // Detect changes
+      const changes = [];
+      if (w.last_score !== null && r.score !== null && r.score !== w.last_score) {
+        const diff = r.score - w.last_score;
+        changes.push({ type: "score_change", from: w.last_score, to: r.score, diff });
+      }
+      if (w.last_grade && r.grade && r.grade !== w.last_grade) {
+        changes.push({ type: "grade_change", from: w.last_grade, to: r.grade });
+      }
+      if (w.last_status && r.company_status && r.company_status !== w.last_status) {
+        changes.push({ type: "status_change", from: w.last_status, to: r.company_status });
+      }
+
+      return {
+        ...w,
+        last_checked: now,
+        last_score: r.score ?? w.last_score,
+        last_grade: r.grade ?? w.last_grade,
+        last_status: r.company_status ?? w.last_status,
+        last_label: r.label ?? w.last_label,
+        distress_pct: r.distress_pct,
+        alerts: r.alerts || [],
+        gov_contracts: r.gov_contracts || 0,
+        changes: changes.length ? changes : (w.changes || []),
+      };
+    });
+    save(next);
+    return next;
+  };
+
+  return { list, add, remove, isWatched, updateFromCheck, save };
+}
+
+function WatchlistPage({ onBack, onViewCompany, watchlist }) {
+  const [checking, setChecking] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(null);
+
+  const gradeCol = (g) => g === "A" ? "#10b981" : g === "B" ? "#34d399" : g === "C" ? "#f59e0b" : g === "D" ? "#f97316" : g === "E" ? "#ef4444" : "#dc2626";
+
+  const refreshAll = async () => {
+    if (watchlist.list.length === 0) return;
+    setChecking(true);
+    try {
+      const resp = await fetch("/api/monitor/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companies: watchlist.list.map(w => w.company_number) }),
+      });
+      const data = await resp.json();
+      if (data.results) {
+        watchlist.updateFromCheck(data.results);
+        setLastRefresh(new Date());
+      }
+    } catch (e) {
+      console.error("Refresh failed:", e);
+    }
+    setChecking(false);
+  };
+
+  const timeAgo = (iso) => {
+    if (!iso) return "never";
+    const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (diff < 60) return "just now";
+    if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+    if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+    return Math.floor(diff / 86400) + "d ago";
+  };
+
+  const critCount = watchlist.list.filter(w => w.alerts?.some(a => a.severity === "critical")).length;
+  const warnCount = watchlist.list.filter(w => w.alerts?.some(a => a.severity === "warning" || a.severity === "high")).length;
+
+  return (<div>
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+        <div>
+          <h2 style={{ fontSize: 20, fontWeight: 800, color: "#f1f5f9", margin: 0, letterSpacing: -0.5 }}>Monitoring Dashboard</h2>
+          <p style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>
+            {watchlist.list.length} compan{watchlist.list.length !== 1 ? "ies" : "y"} tracked
+            {critCount > 0 && <span style={{ color: "#ef4444", fontWeight: 700, marginLeft: 8 }}>{"\u26A0"} {critCount} critical</span>}
+            {warnCount > 0 && <span style={{ color: "#f59e0b", fontWeight: 700, marginLeft: 8 }}>{"\u26A0"} {warnCount} warning</span>}
+          </p>
+        </div>
+        <button onClick={refreshAll} disabled={checking || watchlist.list.length === 0}
+          style={{ padding: "8px 16px", fontSize: 11, fontWeight: 700, background: "linear-gradient(135deg, #0ea5e9, #6366f1)", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", opacity: checking ? 0.6 : 1, whiteSpace: "nowrap" }}>
+          {checking ? "\u21BB Checking..." : "\u21BB Refresh All"}
+        </button>
+      </div>
+      {lastRefresh && <div style={{ fontSize: 9, color: "#475569" }}>Last refreshed: {lastRefresh.toLocaleTimeString()}</div>}
+    </div>
+
+    {watchlist.list.length === 0 ? (
+      <div style={{ textAlign: "center", padding: "40px 20px", color: "#334155" }}>
+        <div style={{ fontSize: 36, marginBottom: 12 }}>{"\uD83D\uDD0D"}</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "#64748b", marginBottom: 8 }}>No companies being monitored</div>
+        <div style={{ fontSize: 11, color: "#475569", maxWidth: 360, margin: "0 auto", lineHeight: 1.6 }}>
+          Search for a company and click the {"\uD83D\uDC41"} Watch button to add it to your monitoring dashboard.
+          You'll see alerts when their status, score, or filings change.
+        </div>
+        <button onClick={onBack} style={{ marginTop: 16, padding: "8px 18px", fontSize: 11, fontWeight: 700, background: "#1e1b4b", color: "#a5b4fc", border: "1px solid #312e81", borderRadius: 8, cursor: "pointer" }}>
+          Search Companies
+        </button>
+      </div>
+    ) : (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {watchlist.list.map(w => {
+          const hasCritical = w.alerts?.some(a => a.severity === "critical");
+          const hasWarning = w.alerts?.some(a => a.severity === "warning" || a.severity === "high");
+          const borderColor = hasCritical ? "#7f1d1d" : hasWarning ? "#78350f" : "#1e293b";
+
+          return (
+            <div key={w.company_number} style={{
+              background: "#0b1120", borderRadius: 10, border: "1px solid " + borderColor,
+              padding: "14px 18px", cursor: "pointer", transition: "border-color 0.15s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "#334155"}
+            onMouseLeave={e => e.currentTarget.style.borderColor = borderColor}>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div onClick={() => onViewCompany(w.company_number)} style={{ flex: 1, cursor: "pointer" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    {w.last_grade && (
+                      <span style={{ fontSize: 16, fontWeight: 800, color: gradeCol(w.last_grade), fontFamily: "'JetBrains Mono', monospace" }}>
+                        {w.last_grade}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#f1f5f9" }}>{w.company_name}</span>
+                    <span style={{ fontSize: 9, color: "#475569" }}>{w.company_number}</span>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    {w.last_score !== null && (
+                      <span style={{ fontSize: 10, color: "#94a3b8" }}>
+                        Score: <span style={{ fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: gradeCol(w.last_grade) }}>{w.last_score}</span>/100
+                      </span>
+                    )}
+                    {w.distress_pct !== null && w.distress_pct !== undefined && (
+                      <span style={{ fontSize: 10, color: w.distress_pct > 20 ? "#f87171" : w.distress_pct > 5 ? "#f59e0b" : "#6ee7b7" }}>
+                        Distress: {w.distress_pct}%
+                      </span>
+                    )}
+                    {w.last_status && w.last_status !== "active" && (
+                      <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: "#7f1d1d", color: "#fca5a5", textTransform: "uppercase" }}>
+                        {w.last_status}
+                      </span>
+                    )}
+                    {w.gov_contracts > 0 && (
+                      <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 3, background: "#052e16", color: "#6ee7b7" }}>
+                        {"\uD83C\uDFF0"} {w.gov_contracts} govt contract{w.gov_contracts !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 9, color: "#334155" }}>Checked: {timeAgo(w.last_checked)}</span>
+                  </div>
+                </div>
+
+                <button onClick={(e) => { e.stopPropagation(); watchlist.remove(w.company_number); }}
+                  style={{ all: "unset", cursor: "pointer", fontSize: 10, color: "#475569", padding: "4px 8px", borderRadius: 4 }}
+                  title="Remove from watchlist">
+                  {"\u2715"}
+                </button>
+              </div>
+
+              {/* Alerts */}
+              {w.alerts?.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
+                  {w.alerts.map((a, i) => (
+                    <span key={i} style={{
+                      fontSize: 8, fontWeight: 700, padding: "2px 7px", borderRadius: 3,
+                      background: a.severity === "critical" ? "#7f1d1d" : a.severity === "high" ? "#422006" : "#1e293b",
+                      color: a.severity === "critical" ? "#fca5a5" : a.severity === "high" ? "#fbbf24" : "#94a3b8",
+                      textTransform: "uppercase", letterSpacing: 0.3,
+                    }}>
+                      {a.type.replace(/_/g, " ")}{a.date ? ` (${a.date})` : ""}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Changes since last check */}
+              {w.changes?.length > 0 && (
+                <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #141d2d" }}>
+                  {w.changes.map((c, i) => (
+                    <div key={i} style={{ fontSize: 9, color: "#f59e0b", display: "flex", alignItems: "center", gap: 4 }}>
+                      <span>{"\u26A1"}</span>
+                      {c.type === "score_change" && <span>Score changed: {c.from} {"\u2192"} {c.to} ({c.diff > 0 ? "+" : ""}{c.diff})</span>}
+                      {c.type === "grade_change" && <span>Grade changed: {c.from} {"\u2192"} {c.to}</span>}
+                      {c.type === "status_change" && <span style={{ color: "#ef4444" }}>Status changed: {c.from} {"\u2192"} {c.to}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    )}
+
+    <div style={{ marginTop: 24, padding: "16px 20px", background: "#0b1120", borderRadius: 10, border: "1px solid #1e293b" }}>
+      <div style={{ fontSize: 9, fontWeight: 700, color: "#64748b", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>About Monitoring</div>
+      <div style={{ fontSize: 11, color: "#475569", lineHeight: 1.7 }}>
+        Your watchlist is stored locally in your browser. Click Refresh All to re-check all companies against
+        Companies House, The London Gazette, and Contracts Finder. Changes in score, grade, or status are highlighted.
+        Email alerts coming soon.
+      </div>
+    </div>
+  </div>);
+}
+
 /* APP */
 function App() {
   const [page, setPage] = useState("search");
@@ -925,6 +1285,7 @@ function App() {
   const [error, setError] = useState(null);
   const [history, setHistory] = useState([]);
   const ref = useRef(null);
+  const watchlist = useWatchlist();
 
   // Share link support: check URL on load
   useEffect(() => {
@@ -977,24 +1338,35 @@ function App() {
 
   const gradeCol = (g) => g === "A" ? "#10b981" : g === "B" ? "#34d399" : g === "C" ? "#f59e0b" : g === "D" ? "#f97316" : g === "E" ? "#ef4444" : "#dc2626";
 
-  const Nav = () => (
+  const Nav = () => {
+    const alertCount = watchlist.list.filter(w => w.alerts?.some(a => a.severity === "critical" || a.severity === "high")).length;
+    return (
     <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, paddingBottom: 12, borderBottom: "1px solid #0f172a" }}>
       <button onClick={goSearch} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 7 }}>
         <div style={{ width: 22, height: 22, borderRadius: 4, background: "linear-gradient(135deg, #0ea5e9, #6366f1)", display: "flex", alignItems: "center", justifyContent: "center" }}><span style={{ fontSize: 10, fontWeight: 800, color: "#fff" }}>C</span></div>
         <span style={{ fontSize: 12, fontWeight: 700, color: "#f1f5f9" }}>Clearview</span>
       </button>
-      <button onClick={goHelp} style={{ all: "unset", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366f1", padding: "4px 10px", borderRadius: 6, border: "1px solid #2e1065" }}>
-        {"\u2753"} How it works
-      </button>
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <button onClick={() => { setPage("watchlist"); window.scrollTo(0,0); }}
+          style={{ all: "unset", cursor: "pointer", fontSize: 10, fontWeight: 600, color: page === "watchlist" ? "#f1f5f9" : "#6366f1", padding: "4px 10px", borderRadius: 6, border: "1px solid " + (page === "watchlist" ? "#6366f1" : "#2e1065"), background: page === "watchlist" ? "#312e81" : "transparent", position: "relative" }}>
+          {"\uD83D\uDC41"} Monitor {watchlist.list.length > 0 && <span style={{ fontSize: 8, color: "#94a3b8" }}>({watchlist.list.length})</span>}
+          {alertCount > 0 && <span style={{ position: "absolute", top: -4, right: -4, width: 14, height: 14, borderRadius: "50%", background: "#ef4444", color: "#fff", fontSize: 8, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{alertCount}</span>}
+        </button>
+        <button onClick={goHelp} style={{ all: "unset", cursor: "pointer", fontSize: 10, fontWeight: 600, color: "#6366f1", padding: "4px 10px", borderRadius: 6, border: "1px solid #2e1065" }}>
+          {"\u2753"} How it works
+        </button>
+      </div>
     </div>
-  );
+  );};
+
 
   return (<div style={{ minHeight: "100vh", background: "#060a12", fontFamily: "'DM Sans', sans-serif", color: "#e2e8f0" }}>
     <div style={{ maxWidth: 860, margin: "0 auto", padding: "20px 24px" }}>
       <Nav />
       {page === "help" ? <HelpPage onBack={goSearch} /> :
+       page === "watchlist" ? <WatchlistPage onBack={goSearch} onViewCompany={loadCompany} watchlist={watchlist} /> :
        loadingCompany ? <LoadingState /> :
-       page === "dashboard" && selected ? <Dashboard company={selected} onBack={goSearch} onHelp={goHelp} onCompare={loadCompare} compareWith={compareWith} /> : (<>
+       page === "dashboard" && selected ? <Dashboard company={selected} onBack={goSearch} onHelp={goHelp} onCompare={loadCompare} compareWith={compareWith} watchlist={watchlist} /> : (<>
         <div style={{ textAlign: "center", marginBottom: 28, marginTop: 10 }}>
           <h1 style={{ fontSize: 24, fontWeight: 800, color: "#f1f5f9", margin: "0 0 4px", letterSpacing: -0.5 }}>Should you do business with them?</h1>
           <p style={{ fontSize: 11, color: "#64748b", maxWidth: 520, margin: "0 auto", lineHeight: 1.5 }}>Instant credit assessment for any UK company. Search by name or number.</p>

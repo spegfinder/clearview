@@ -18,6 +18,7 @@ from accounts_parser import extract_financials_from_ixbrl, format_for_frontend
 from pdf_parser import extract_financials_from_pdf
 from distress_predictor import predict_distress
 from clearview_score import assess_company
+from external_data import fetch_external_data
 
 # ── Config ──
 API_KEY = os.environ.get("CH_API_KEY")
@@ -206,6 +207,18 @@ def company(number):
             print(f"[Clearview] Prediction failed: {pe}")
             data["distress_prediction"] = None
 
+        # ── Fetch External Data (Gazette + Contracts Finder) ──
+        try:
+            external = fetch_external_data(data.get("company_name", ""), number)
+            # Merge gazette notices (replace old ones from ch_api)
+            if external.get("gazette_notices"):
+                data["gazette_notices"] = external["gazette_notices"]
+            # Add government contracts
+            data["government_contracts"] = external.get("government_contracts", {})
+        except Exception as ee:
+            print(f"[Clearview] External data failed: {ee}")
+            data["government_contracts"] = {"contracts": [], "total_value": 0, "total_contracts": 0}
+
         # Remove raw filings data before caching
         data.pop("accounts_filings", None)
 
@@ -233,6 +246,73 @@ def clear_cache():
     """Clear the company data cache."""
     _company_cache.clear()
     return jsonify({"status": "cleared"})
+
+
+@app.route("/api/monitor/check", methods=["POST"])
+def monitor_check():
+    """Batch-check multiple companies for monitoring dashboard.
+    Accepts: {"companies": ["12345678", "87654321", ...]}
+    Returns summary for each: status, score, key alerts, last checked.
+    Uses cache when available, fetches fresh data otherwise.
+    """
+    try:
+        body = request.get_json()
+        numbers = body.get("companies", [])[:20]  # Cap at 20
+
+        results = []
+        for number in numbers:
+            number = str(number).strip().upper()
+            try:
+                # Use cache if available
+                if number in _company_cache:
+                    data = _company_cache[number]
+                else:
+                    # Quick fetch — profile only, skip heavy parsing
+                    data = build_company_data(client, number)
+                    if not data:
+                        results.append({"company_number": number, "error": "not_found"})
+                        continue
+
+                # Build summary
+                assessment = data.get("assessment", {})
+                gazette = data.get("gazette_notices", [])
+                contracts = data.get("government_contracts", {})
+                accounts = data.get("accounts", {})
+
+                alerts = []
+                if accounts.get("overdue"):
+                    alerts.append({"type": "accounts_overdue", "severity": "critical"})
+                if data.get("confirmation_statement", {}).get("overdue"):
+                    alerts.append({"type": "confirmation_overdue", "severity": "warning"})
+                for n in gazette:
+                    if n.get("severity") in ("critical", "high"):
+                        alerts.append({"type": "gazette_" + n.get("type", "notice").lower().replace(" ", "_"),
+                                       "severity": n["severity"], "date": n.get("date", "")})
+                if data.get("company_status") not in ("active", None):
+                    alerts.append({"type": "status_" + str(data.get("company_status", "")), "severity": "critical"})
+
+                summary = {
+                    "company_number": number,
+                    "company_name": data.get("company_name", ""),
+                    "company_status": data.get("company_status", ""),
+                    "score": assessment.get("clearview_score") if assessment else None,
+                    "grade": assessment.get("rating", {}).get("grade") if assessment else None,
+                    "label": assessment.get("rating", {}).get("label") if assessment else None,
+                    "distress_pct": data.get("distress_prediction", {}).get("probability_pct") if data.get("distress_prediction") else None,
+                    "alerts": alerts,
+                    "gov_contracts": contracts.get("total_contracts", 0) if contracts else 0,
+                    "cached": number in _company_cache,
+                }
+                results.append(summary)
+
+            except Exception as e:
+                results.append({"company_number": number, "error": str(e)})
+
+        return jsonify({"results": results})
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/debug/<number>")
